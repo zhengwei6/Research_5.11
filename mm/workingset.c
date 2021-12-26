@@ -281,6 +281,8 @@ void *workingset_eviction(struct page *page, struct mem_cgroup *target_memcg)
 	VM_BUG_ON_PAGE(!PageLocked(page), page);
 
 	lruvec = mem_cgroup_lruvec(target_memcg, pgdat);
+	if (PageAnon(page))
+		workingset_age_anon(lruvec, thp_nr_pages(page));
 	workingset_age_nonresident(lruvec, thp_nr_pages(page));
 	/* XXX: target_memcg can be NULL, go through lruvec */
 	memcgid = mem_cgroup_id(lruvec_memcg(lruvec));
@@ -428,6 +430,8 @@ void workingset_activation(struct page *page)
 		goto out;
 	lruvec = mem_cgroup_page_lruvec(page, page_pgdat(page));
 	workingset_age_nonresident(lruvec, thp_nr_pages(page));
+	if (PageAnon(page))
+		workingset_age_anon(lruvec, thp_nr_pages(page));
 out:
 	rcu_read_unlock();
 }

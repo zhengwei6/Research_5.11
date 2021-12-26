@@ -1069,7 +1069,6 @@ static void __page_set_anon_rmap(struct page *page,
 		struct refault_anon_shadow *refault_anon_shadow = search_anon_shadow(root, page->index);
 		if (refault_anon_shadow == NULL) {
 			refault_anon_shadow = kmalloc(sizeof(struct refault_anon_shadow), GFP_KERNEL);
-			printk("create refault anon shadow\n");
 			if (refault_anon_shadow != NULL) {
 				refault_anon_shadow->index = page->index;
 				refault_anon_shadow->inactive_age_shadow = 0;
@@ -1081,11 +1080,31 @@ static void __page_set_anon_rmap(struct page *page,
 			if (refault_anon_shadow->inactive_age_shadow >= 0 && refault_anon_shadow->refault_count == 0) {
 				struct lruvec *lruvec = refault_anon_shadow->lruvec;
 				if (lruvec != NULL) {
-					unsigned long inactive_age_anon = atomic_long_read(&lruvec->nonresident_age);
+					unsigned long inactive_age_anon = atomic_long_read(&lruvec->inactive_age_anon);
 					unsigned long refault_distance = inactive_age_anon - refault_anon_shadow->inactive_age_shadow;
-					printk("inactive_age_anon: %lu lru size: %lu\n", inactive_age_anon, lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES));
-					refault_anon_shadow->refault_count = refault_distance / lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES) + 1;
-					printk("anon pid: %u refault distance: %lu lru size: %lu page index: %lu\n", vma->vm_mm->owner->pid, \
+					/*
+					if (refault_distance < lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES)) {
+						refault_anon_shadow->refault_count += 2;
+					}
+					else {
+						refault_anon_shadow->refault_count += 1;
+					}
+					if (refault_anon_shadow->refault_count <= 1) {
+						refault_anon_shadow->refault_max_budget = 10;
+					}
+					else if (refault_anon_shadow->refault_count <= 3) {
+						refault_anon_shadow->refault_max_budget = 40;
+					}
+					else if (refault_anon_shadow->refault_count <= 5) {
+						refault_anon_shadow->refault_max_budget = 60;
+					}
+					else {
+						refault_anon_shadow->refault_max_budget = 70;
+					}*/
+					refault_anon_shadow->refault_max_budget = refault_distance / lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES) + 1 + refault_anon_shadow->refault_max_budget * 2;
+					refault_anon_shadow->refault_budget     = refault_anon_shadow->refault_max_budget;
+					//refault_anon_shadow->refault_count = refault_distance / lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES) + 1;
+					printk("anon pid: %u refault distance: %lu lru size: %lu page index: %lu", vma->vm_mm->owner->pid, \
 							refault_distance, lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES), page->index);
 				}
 			}
@@ -1651,20 +1670,25 @@ static bool try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 		} else if (PageAnon(page)) {
 			swp_entry_t entry = { .val = page_private(subpage) };
 			pte_t swp_pte;
-			if (vma->vm_mm != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) { 
-				struct anon_vma *anon_vma = page_get_anon_vma(page);
-				struct rb_root *root = &(anon_vma->refault_rb_root);
-				struct refault_anon_shadow *refault_anon_shadow = search_anon_shadow(root, page->index);
-				struct pglist_data *pgdat = page_pgdat(page);
-				struct lruvec *lruvec = mem_cgroup_page_lruvec(page, pgdat);
-				if (refault_anon_shadow != NULL) {
-					if (lruvec != NULL) {
-						refault_anon_shadow->inactive_age_shadow = atomic_long_read(&lruvec->nonresident_age);
-						refault_anon_shadow->lruvec = lruvec;
-						refault_anon_shadow->refault_count = 0;
-						printk("anon swap out pid: %u page index: %lu\n", vma->vm_mm->owner->pid, page->index);
+			if (PageSwapBacked(page) && vma != NULL && vma->vm_mm != NULL && vma->vm_mm->owner != NULL  && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) { 
+				struct anon_vma *anon_vma = page_lock_anon_vma_read(page);
+				if (anon_vma != NULL) {
+					struct rb_root *root = &(anon_vma->refault_rb_root);
+					if (root != NULL) {
+						struct refault_anon_shadow *refault_anon_shadow = search_anon_shadow(root, page->index);
+						struct pglist_data *pgdat = page_pgdat(page);
+						if (pgdat != NULL) {
+							struct lruvec *lruvec = mem_cgroup_page_lruvec(page, pgdat);
+							if (refault_anon_shadow != NULL && lruvec != NULL) {
+								refault_anon_shadow->inactive_age_shadow = atomic_long_read(&lruvec->inactive_age_anon);
+								refault_anon_shadow->lruvec = lruvec;
+								printk("anon swap out pid: %u page index: %lu\n", vma->vm_mm->owner->pid, page->index);
+							}
+						}
 					}
 				}
+				if (anon_vma)
+					page_unlock_anon_vma_read(anon_vma);
 			}
 			/*
 			 * Store the swap location in the pte.

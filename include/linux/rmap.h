@@ -69,6 +69,8 @@ struct refault_anon_shadow {
 	pgoff_t index;
 	unsigned long inactive_age_shadow;
 	unsigned long refault_count;
+	unsigned long refault_budget;
+	unsigned long refault_max_budget;
 };
 
 struct refault_anon_shadow *search_anon_shadow(struct rb_root *root, pgoff_t index);

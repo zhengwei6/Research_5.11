@@ -319,6 +319,7 @@ void workingset_refault(struct page *page, void *shadow);
 void workingset_activation(struct page *page);
 void workingset_eviction_anon(struct page *page);
 void workingset_activation_anon(struct page *page);
+void workingset_age_anon(struct lruvec *lruvec, unsigned long nr_pages);
 
 /* Only track the nodes of mappings with shadow entries */
 void workingset_update_node(struct xa_node *node);

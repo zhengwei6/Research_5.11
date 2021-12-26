@@ -897,11 +897,9 @@ static int __remove_mapping(struct address_space *mapping, struct page *page,
 	if (PageSwapCache(page)) {
 		swp_entry_t swap = { .val = page_private(page) };
 		mem_cgroup_swapout(page, swap);
-		if (reclaimed && !mapping_exiting(mapping))
+		if (reclaimed && !mapping_exiting(mapping)) {
 			shadow = workingset_eviction(page, target_memcg);
-		if (reclaimed && PageAnon(page) &&
-				!mapping_exiting(mapping) && !dax_mapping(mapping))
-			workingset_eviction_anon(page);
+		}
 		__delete_from_swap_cache(page, swap, shadow);
 		xa_unlock_irqrestore(&mapping->i_pages, flags);
 		put_swap_page(page, swap);
@@ -1220,36 +1218,48 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		if (!ignore_references)
 			references = page_check_references(page, sc);
-		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN) {
-			if (PageAnon(page)) {
+		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN || references == PAGEREF_ACTIVATE) {
+			if (PageAnon(page) && PageSwapBacked(page)) {
 				struct anon_vma *anon_vma;
 				pgoff_t pgoff_start, pgoff_end;
 				struct anon_vma_chain *avc;
 				struct rb_root *root;
 				struct refault_anon_shadow *refault_anon_shadow;
-				anon_vma = page_anon_vma(page);
+				anon_vma =  page_lock_anon_vma_read(page);
 				if (anon_vma != NULL) {
 					root = &(anon_vma->refault_rb_root);
 					refault_anon_shadow = search_anon_shadow(root, page->index);
-					if (refault_anon_shadow == NULL) goto skip;
+					if (refault_anon_shadow == NULL){
+						if (anon_vma)
+							page_unlock_anon_vma_read(anon_vma);
+						goto skip;
+					}
 					pgoff_start = page_to_pgoff(page);
 					pgoff_end   = pgoff_start + thp_nr_pages(page) - 1;
 					anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
 							pgoff_start, pgoff_end) {
-						struct vm_area_struct *vma = avc->vma;
-						struct anon_vma *anon_vma_sub = avc->anon_vma;
-						if (vma->vm_mm != NULL && anon_vma_sub != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) {
-							struct rb_root *root = &(anon_vma_sub->refault_rb_root);
-							refault_anon_shadow = search_anon_shadow(root, page->index);
-							if (refault_anon_shadow != NULL && references != PAGEREF_ACTIVATE) {
-								if (refault_anon_shadow->refault_count > 0) {
-									refault_anon_shadow->refault_count = refault_anon_shadow->refault_count - 1;
-									references = PAGEREF_KEEP;
+						if (avc) {
+							struct vm_area_struct *vma = avc->vma;
+							struct anon_vma *anon_vma_sub = avc->anon_vma;
+							if (vma != NULL && vma->vm_mm != NULL && anon_vma_sub != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) {
+								struct rb_root *root = &(anon_vma_sub->refault_rb_root);
+								refault_anon_shadow = search_anon_shadow(root, page->index);
+								if (refault_anon_shadow != NULL && references != PAGEREF_ACTIVATE) {
+									if (refault_anon_shadow->refault_budget > 0) {
+										refault_anon_shadow->refault_budget = refault_anon_shadow->refault_budget - 1;
+										workingset_age_anon(refault_anon_shadow->lruvec, thp_nr_pages(page));
+										references = PAGEREF_KEEP;
+									}
+								}
+								else if (refault_anon_shadow != NULL && references == PAGEREF_ACTIVATE) {
+									refault_anon_shadow->refault_budget = refault_anon_shadow->refault_max_budget;
 								}
 							}
 						}
 					}
 				}
+				if (anon_vma)
+					page_unlock_anon_vma_read(anon_vma);
 			}
 		}
 skip:

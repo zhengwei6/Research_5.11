@@ -436,8 +436,6 @@ void mark_page_accessed(struct page *page)
 			__lru_cache_activate_page(page);
 		ClearPageReferenced(page);
 		workingset_activation(page);
-		if (PageAnon(page))
-			workingset_activation_anon(page);
 	}
 	if (page_is_idle(page))
 		clear_page_idle(page);
