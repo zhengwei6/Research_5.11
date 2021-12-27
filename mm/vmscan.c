@@ -1228,8 +1228,13 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 				anon_vma =  page_lock_anon_vma_read(page);
 				if (anon_vma != NULL) {
 					root = &(anon_vma->refault_rb_root);
+					if (root == NULL) {
+						if (anon_vma)
+							page_unlock_anon_vma_read(anon_vma);
+						goto skip;
+					}
 					refault_anon_shadow = search_anon_shadow(root, page->index);
-					if (refault_anon_shadow == NULL){
+					if (refault_anon_shadow == NULL) {
 						if (anon_vma)
 							page_unlock_anon_vma_read(anon_vma);
 						goto skip;
@@ -1241,7 +1246,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 						if (avc) {
 							struct vm_area_struct *vma = avc->vma;
 							struct anon_vma *anon_vma_sub = avc->anon_vma;
-							if (vma != NULL && vma->vm_mm != NULL && anon_vma_sub != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) {
+							if (vma != NULL && vma->vm_mm != NULL && vma->vm_mm->owner != NULL  && anon_vma_sub != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) {
 								struct rb_root *root = &(anon_vma_sub->refault_rb_root);
 								refault_anon_shadow = search_anon_shadow(root, page->index);
 								if (refault_anon_shadow != NULL && references != PAGEREF_ACTIVATE) {
