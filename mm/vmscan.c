@@ -1246,14 +1246,14 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 						if (avc) {
 							struct vm_area_struct *vma = avc->vma;
 							struct anon_vma *anon_vma_sub = avc->anon_vma;
-							if (vma != NULL && vma->vm_mm != NULL && vma->vm_mm->owner != NULL  && anon_vma_sub != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) {
+							if (vma != NULL && vma->vm_mm != NULL && vma->vm_mm->owner != NULL  && anon_vma_sub != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing >= 1) {
 								struct rb_root *root = &(anon_vma_sub->refault_rb_root);
 								refault_anon_shadow = search_anon_shadow(root, page->index);
 								if (refault_anon_shadow != NULL && references != PAGEREF_ACTIVATE) {
 									if (refault_anon_shadow->refault_budget > 0) {
 										refault_anon_shadow->refault_budget = refault_anon_shadow->refault_budget - 1;
 										workingset_age_anon(refault_anon_shadow->lruvec, thp_nr_pages(page));
-										references = PAGEREF_KEEP;
+										references = PAGEREF_ACTIVATE;
 									}
 								}
 								else if (refault_anon_shadow != NULL && references == PAGEREF_ACTIVATE) {

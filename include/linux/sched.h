@@ -558,7 +558,7 @@ struct sched_dl_entity {
 	unsigned int			dl_non_contending : 1;
 	unsigned int			dl_overrun	  : 1;
 	unsigned int 			dl_major_fault	  : 1;
-	unsigned int			dl_thrashing	  : 1;
+	unsigned int			dl_thrashing;
 	/*
 	 * Bandwidth enforcement timer. Each -deadline task has its
 	 * own bandwidth to be enforced, thus we need one timer per task.
