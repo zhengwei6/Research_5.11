@@ -86,6 +86,8 @@
 #include "pgalloc-track.h"
 #include "internal.h"
 
+#define DEBUG_SWAP
+
 #if defined(LAST_CPUPID_NOT_IN_PAGE_FLAGS) && !defined(CONFIG_COMPILE_TEST)
 #warning Unfortunate NUMA and NUMA Balancing config, growing page-frame for last_cpupid.
 #endif
@@ -3294,7 +3296,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
 	page = lookup_swap_cache(entry, vma, vmf->address);
 	swapcache = page;
-
+	#ifdef DEBUG_SWAP
+		trace_printk("do_swap_page entry\n");
+	#endif
 	if (!page) {
 		struct swap_info_struct *si = swp_swap_info(entry);
 
@@ -3326,13 +3330,21 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 				lru_cache_add(page);
 				swap_readpage(page, true);
+				#ifdef DEBUG_SWAP
+					trace_printk("swp_synchronous\n");
+				#endif
 			}
 		} else {
+			#ifdef DEBUG_SWAP
+				trace_printk("before swapin_readahead\n");
+			#endif
 			page = swapin_readahead(entry, GFP_HIGHUSER_MOVABLE,
 						vmf);
+			#ifdef DEBUG_SWAP
+				trace_printk("after swapin_readahead\n");
+			#endif
 			swapcache = page;
 		}
-
 		if (!page) {
 			/*
 			 * Back out if somebody else faulted in this pte
@@ -3359,9 +3371,15 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
 		goto out_release;
 	}
+	#ifdef DEBUG_SWAP
+		trace_printk("before lock_page_or_retry\n");
+	#endif
 
 	locked = lock_page_or_retry(page, vma->vm_mm, vmf->flags);
-
+	
+	#ifdef DEBUG_SWAP
+		trace_printk("after lock_page_or_retry\n");
+	#endif
 	delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
 	if (!locked) {
 		ret |= VM_FAULT_RETRY;
@@ -3468,6 +3486,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 unlock:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 out:
+	trace_mem_swap_page(ret);
 	return ret;
 out_nomap:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
@@ -3479,6 +3498,7 @@ out_release:
 		unlock_page(swapcache);
 		put_page(swapcache);
 	}
+	trace_mem_swap_page(ret);
 	return ret;
 }
 

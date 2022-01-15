@@ -8,6 +8,18 @@
 #include <linux/types.h>
 #include <linux/tracepoint.h>
 #include <trace/events/mmflags.h>
+TRACE_EVENT(mem_swap_page,
+    TP_PROTO(unsigned int i),
+    TP_ARGS(i),
+    TP_STRUCT__entry(
+				__field(unsigned int,	i	)
+    ),
+    TP_fast_assign(
+				__entry->i = i;
+    ),
+    TP_printk("%u", __entry->i)
+);
+
 
 DECLARE_EVENT_CLASS(kmem_alloc,
 

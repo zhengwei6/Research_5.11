@@ -976,17 +976,11 @@ static void update_dl_entity(struct sched_dl_entity *dl_se)
 	bool wake_from_swap = test_wake_from_swap(dl_se);
 	
 	if (dl_entity_overflow(dl_se, rq_clock(rq))) {
-		if (wake_from_swap) {
-			if (dl_se->dl_thrashing == 0) {
-				dl_se->dl_thrashing = 5;
-			}
-			else {
-				dl_se->dl_thrashing = 10;
-			}
-			//dl_se->dl_thrashing = (dl_se->dl_thrashing + 5) >= 10 ? 10 : (dl_se->dl_thrashing + 5);
+		if (wake_from_swap) {	
+			dl_se->dl_thrashing = (dl_se->dl_thrashing + 1) >= 10 ? 10 : (dl_se->dl_thrashing + 1);
 		}
 		else {
-			//dl_se->dl_thrashing = (dl_se->dl_thrashing - 1) < 0 ? 0 : dl_se->dl_thrashing - 1;
+			dl_se->dl_thrashing = (dl_se->dl_thrashing - 1) < 0 ? 0 : (dl_se->dl_thrashing - 1);
 		}
 	}
 

@@ -26,6 +26,7 @@
 #include <linux/uio.h>
 #include <linux/sched/task.h>
 
+#define DEBUG_SWAP
 static struct bio *get_swap_bio(gfp_t gfp_flags,
 				struct page *page, bio_end_io_t end_io)
 {
@@ -441,7 +442,13 @@ int swap_readpage(struct page *page, bool synchronous)
 	}
 	count_vm_event(PSWPIN);
 	bio_get(bio);
+#ifdef DEBUG_SWAP
+	trace_printk("before submit_bio\n");
+#endif
 	qc = submit_bio(bio);
+#ifdef DEBUG_SWAP
+	trace_printk("after submit_bio\n");
+#endif
 	while (synchronous) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		if (!READ_ONCE(bio->bi_private))
@@ -452,9 +459,11 @@ int swap_readpage(struct page *page, bool synchronous)
 	}
 	__set_current_state(TASK_RUNNING);
 	bio_put(bio);
-
 out:
 	psi_memstall_leave(&pflags);
+#ifdef DEBUG_SWAP
+	trace_printk("after psi_memstall_leave\n");
+#endif
 	return ret;
 }
 

@@ -1253,7 +1253,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 									if (refault_anon_shadow->refault_budget > 0) {
 										refault_anon_shadow->refault_budget = refault_anon_shadow->refault_budget - 1;
 										workingset_age_anon(refault_anon_shadow->lruvec, thp_nr_pages(page));
-										references = PAGEREF_ACTIVATE;
+										//references = PAGEREF_ACTIVATE;
 									}
 								}
 								else if (refault_anon_shadow != NULL && references == PAGEREF_ACTIVATE) {

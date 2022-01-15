@@ -1750,7 +1750,6 @@ EXPORT_SYMBOL(blk_check_plugged);
 void blk_flush_plug_list(struct blk_plug *plug, bool from_schedule)
 {
 	flush_plug_callbacks(plug, from_schedule);
-
 	if (!list_empty(&plug->mq_list))
 		blk_mq_flush_plug_list(plug, from_schedule);
 }
@@ -1770,7 +1769,6 @@ void blk_finish_plug(struct blk_plug *plug)
 	if (plug != current->plug)
 		return;
 	blk_flush_plug_list(plug, false);
-
 	current->plug = NULL;
 }
 EXPORT_SYMBOL(blk_finish_plug);

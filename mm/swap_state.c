@@ -24,6 +24,7 @@
 #include <linux/shmem_fs.h>
 #include "internal.h"
 
+#define DEBUG_SWAP
 /*
  * swapper_space is a fiction, retained to simplify the path through
  * vmscan's shrink_page_list.
@@ -558,12 +559,14 @@ struct page *read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		struct vm_area_struct *vma, unsigned long addr, bool do_poll)
 {
 	bool page_was_allocated;
+#ifdef DEBUG_SWAP
+	trace_printk("read_swap_cache_async entry\n");
+#endif
 	struct page *retpage = __read_swap_cache_async(entry, gfp_mask,
 			vma, addr, &page_was_allocated);
-
 	if (page_was_allocated)
 		swap_readpage(retpage, do_poll);
-
+	
 	return retpage;
 }
 
@@ -697,9 +700,17 @@ struct page *swap_cluster_readahead(swp_entry_t entry, gfp_t gfp_mask,
 		}
 		put_page(page);
 	}
+#ifdef DEBUG_SWAP
+	trace_printk("before blk_finish_plug\n");
+#endif
 	blk_finish_plug(&plug);
-
+#ifdef DEBUG_SWAP
+	trace_printk("after blk_finish_plug before lru_add_drain\n");
+#endif
 	lru_add_drain();	/* Push any new pages onto the LRU now */
+#ifdef DEBUG_SWAP
+	trace_printk("after lru_add_drain\n");
+#endif
 skip:
 	return read_swap_cache_async(entry, gfp_mask, vma, addr, do_poll);
 }
@@ -871,8 +882,17 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		}
 		put_page(page);
 	}
+#ifdef DEBUG_SWAP
+    trace_printk("before blk_finish_plug\n");
+#endif
 	blk_finish_plug(&plug);
+#ifdef DEBUG_SWAP
+    trace_printk("after blk_finish_plug before lru_add_drain\n");
+#endif
 	lru_add_drain();
+#ifdef DEBUG_SWAP
+    trace_printk("after lru_add_drain\n");
+#endif
 skip:
 	return read_swap_cache_async(fentry, gfp_mask, vma, vmf->address,
 				     ra_info.win == 1);

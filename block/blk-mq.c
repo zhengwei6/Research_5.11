@@ -1912,8 +1912,10 @@ void blk_mq_flush_plug_list(struct blk_plug *plug, bool from_schedule)
 
 		list_cut_before(&rq_list, &list, pos);
 		trace_block_unplug(head_rq->q, depth, !from_schedule);
+		trace_printk("before blk_mq_sched_insert_requests\n");
 		blk_mq_sched_insert_requests(this_hctx, this_ctx, &rq_list,
 						from_schedule);
+		trace_printk("after blk_mq_sched_insert_requests\n");
 	} while(!list_empty(&list));
 }
 

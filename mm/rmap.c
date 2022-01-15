@@ -1088,7 +1088,7 @@ static void __page_set_anon_rmap(struct page *page,
 					//refault_anon_shadow->refault_count = refault_distance / lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES) + 1;
 					//printk("anon pid: %u refault distance: %lu lru size: %lu page index: %lu", vma->vm_mm->owner->pid, \
 							refault_distance, lruvec_lru_size(lruvec, LRU_INACTIVE_ANON, MAX_NR_ZONES), page->index);
-					printk("refault_anon_shadow->refault_budget: %lu\n", refault_anon_shadow->refault_budget);
+					//printk("refault_anon_shadow->refault_budget: %lu\n", refault_anon_shadow->refault_budget);
 				}
 			}
 		}
