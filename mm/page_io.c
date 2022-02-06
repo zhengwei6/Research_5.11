@@ -461,9 +461,6 @@ int swap_readpage(struct page *page, bool synchronous)
 	bio_put(bio);
 out:
 	psi_memstall_leave(&pflags);
-#ifdef DEBUG_SWAP
-	trace_printk("after psi_memstall_leave\n");
-#endif
 	return ret;
 }
 

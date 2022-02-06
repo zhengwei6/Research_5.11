@@ -540,12 +540,10 @@ inline void __blk_mq_end_request(struct request *rq, blk_status_t error)
 
 	if (blk_mq_need_time_stamp(rq))
 		now = ktime_get_ns();
-
 	if (rq->rq_flags & RQF_STATS) {
 		blk_mq_poll_stats_start(rq->q);
 		blk_stat_add(rq, now);
 	}
-
 	blk_mq_sched_completed_request(rq, now);
 
 	blk_account_io_done(rq, now);
@@ -1596,7 +1594,6 @@ static void __blk_mq_delay_run_hw_queue(struct blk_mq_hw_ctx *hctx, bool async,
 
 		put_cpu();
 	}
-
 	kblockd_mod_delayed_work_on(blk_mq_hctx_next_cpu(hctx), &hctx->run_work,
 				    msecs_to_jiffies(msecs));
 }
@@ -1640,7 +1637,6 @@ void blk_mq_run_hw_queue(struct blk_mq_hw_ctx *hctx, bool async)
 	need_run = !blk_queue_quiesced(hctx->queue) &&
 		blk_mq_hctx_has_pending(hctx);
 	hctx_unlock(hctx, srcu_idx);
-
 	if (need_run)
 		__blk_mq_delay_run_hw_queue(hctx, async, 0);
 }
@@ -1861,7 +1857,6 @@ void blk_mq_insert_requests(struct blk_mq_hw_ctx *hctx, struct blk_mq_ctx *ctx,
 		BUG_ON(rq->mq_ctx != ctx);
 		trace_block_rq_insert(rq);
 	}
-
 	spin_lock(&ctx->lock);
 	list_splice_tail_init(list, &ctx->rq_lists[type]);
 	blk_mq_hctx_mark_pending(hctx, ctx);
@@ -1912,10 +1907,8 @@ void blk_mq_flush_plug_list(struct blk_plug *plug, bool from_schedule)
 
 		list_cut_before(&rq_list, &list, pos);
 		trace_block_unplug(head_rq->q, depth, !from_schedule);
-		trace_printk("before blk_mq_sched_insert_requests\n");
 		blk_mq_sched_insert_requests(this_hctx, this_ctx, &rq_list,
 						from_schedule);
-		trace_printk("after blk_mq_sched_insert_requests\n");
 	} while(!list_empty(&list));
 }
 
@@ -1949,7 +1942,7 @@ static blk_status_t __blk_mq_issue_directly(struct blk_mq_hw_ctx *hctx,
 	};
 	blk_qc_t new_cookie;
 	blk_status_t ret;
-
+	trace_printk("__blk_mq_issue_directly 1\n");
 	new_cookie = request_to_qc_t(hctx, rq);
 
 	/*
@@ -1957,7 +1950,9 @@ static blk_status_t __blk_mq_issue_directly(struct blk_mq_hw_ctx *hctx,
 	 * Any other error (busy), just add it to our list as we
 	 * previously would have done.
 	 */
+	trace_printk("__blk_mq_issue_directly 2\n");
 	ret = q->mq_ops->queue_rq(hctx, &bd);
+	trace_printk("__blk_mq_issue_directly 3\n");
 	switch (ret) {
 	case BLK_STS_OK:
 		blk_mq_update_dispatch_busy(hctx, false);
@@ -1973,7 +1968,7 @@ static blk_status_t __blk_mq_issue_directly(struct blk_mq_hw_ctx *hctx,
 		*cookie = BLK_QC_T_NONE;
 		break;
 	}
-
+	trace_printk("__blk_mq_issue_directly 4\n");
 	return ret;
 }
 
@@ -1992,6 +1987,7 @@ static blk_status_t __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 	 * blk_mq_request_issue_directly(), and return BLK_STS_OK to caller,
 	 * and avoid driver to try to dispatch again.
 	 */
+	trace_printk("__blk_mq_try_issue_directly 1\n");
 	if (blk_mq_hctx_stopped(hctx) || blk_queue_quiesced(q)) {
 		run_queue = false;
 		bypass_insert = false;
@@ -2008,14 +2004,12 @@ static blk_status_t __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 		blk_mq_put_dispatch_budget(q);
 		goto insert;
 	}
-
+	trace_printk("__blk_mq_try_issue_directly 2\n");
 	return __blk_mq_issue_directly(hctx, rq, cookie, last);
 insert:
 	if (bypass_insert)
 		return BLK_STS_RESOURCE;
-
 	blk_mq_sched_insert_request(rq, false, run_queue, false);
-
 	return BLK_STS_OK;
 }
 
@@ -2055,9 +2049,10 @@ blk_status_t blk_mq_request_issue_directly(struct request *rq, bool last)
 	int srcu_idx;
 	blk_qc_t unused_cookie;
 	struct blk_mq_hw_ctx *hctx = rq->mq_hctx;
-
 	hctx_lock(hctx, &srcu_idx);
+	trace_printk("blk_mq_request_issue_directly 1\n");
 	ret = __blk_mq_try_issue_directly(hctx, rq, &unused_cookie, true, last);
+	trace_printk("blk_mq_request_issue_directly 2\n");
 	hctx_unlock(hctx, srcu_idx);
 
 	return ret;
@@ -2068,7 +2063,7 @@ void blk_mq_try_issue_list_directly(struct blk_mq_hw_ctx *hctx,
 {
 	int queued = 0;
 	int errors = 0;
-
+	trace_printk("blk_mq_try_issue_list_directly 1\n");
 	while (!list_empty(list)) {
 		blk_status_t ret;
 		struct request *rq = list_first_entry(list, struct request,
@@ -2088,7 +2083,7 @@ void blk_mq_try_issue_list_directly(struct blk_mq_hw_ctx *hctx,
 		} else
 			queued++;
 	}
-
+	trace_printk("blk_mq_try_issue_list_directly 2\n");
 	/*
 	 * If we didn't flush the entire list, we could have told
 	 * the driver there was more coming, but that turned out to

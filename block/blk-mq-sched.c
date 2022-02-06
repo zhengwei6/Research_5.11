@@ -423,7 +423,6 @@ void blk_mq_sched_insert_request(struct request *rq, bool at_head,
 	struct blk_mq_hw_ctx *hctx = rq->mq_hctx;
 
 	WARN_ON(e && (rq->tag != BLK_MQ_NO_TAG));
-
 	if (blk_mq_sched_bypass_insert(hctx, !!e, rq)) {
 		/*
 		 * Firstly normal IO request is inserted to scheduler queue or
@@ -450,7 +449,6 @@ void blk_mq_sched_insert_request(struct request *rq, bool at_head,
 		blk_mq_request_bypass_insert(rq, at_head, false);
 		goto run;
 	}
-
 	if (e && e->type->ops.insert_requests) {
 		LIST_HEAD(list);
 
@@ -480,7 +478,7 @@ void blk_mq_sched_insert_requests(struct blk_mq_hw_ctx *hctx,
 	 * from being released.
 	 */
 	percpu_ref_get(&q->q_usage_counter);
-
+	trace_printk("blk_mq_sched_insert_requests 1\n");
 	e = hctx->queue->elevator;
 	if (e && e->type->ops.insert_requests)
 		e->type->ops.insert_requests(hctx, list, false);
@@ -490,6 +488,7 @@ void blk_mq_sched_insert_requests(struct blk_mq_hw_ctx *hctx,
 		 * busy in case of 'none' scheduler, and this way may save
 		 * us one extra enqueue & dequeue to sw queue.
 		 */
+		trace_printk("blk_mq_sched_insert_requests 2\n");
 		if (!hctx->dispatch_busy && !e && !run_queue_async) {
 			blk_mq_try_issue_list_directly(hctx, list);
 			if (list_empty(list))
@@ -497,9 +496,10 @@ void blk_mq_sched_insert_requests(struct blk_mq_hw_ctx *hctx,
 		}
 		blk_mq_insert_requests(hctx, ctx, list);
 	}
-
+	trace_printk("blk_mq_sched_insert_requests 3\n");
 	blk_mq_run_hw_queue(hctx, run_queue_async);
  out:
+	trace_printk("blk_mq_sched_insert_requests 4\n");
 	percpu_ref_put(&q->q_usage_counter);
 }
 
