@@ -343,8 +343,9 @@ static bool nvme_dbbuf_update_and_check_event(u16 value, u32 *dbbuf_db,
 		 * Ensure that the queue is written before updating
 		 * the doorbell in memory
 		 */
+		trace_printk("nvme_dbbuf_update_and_check_event 1\n");
 		wmb();
-
+		trace_printk("nvme_dbbuf_update_and_check_event 2\n");
 		old_value = *dbbuf_db;
 		*dbbuf_db = value;
 
@@ -354,8 +355,9 @@ static bool nvme_dbbuf_update_and_check_event(u16 value, u32 *dbbuf_db,
 		 * ordering to ensure the envent index is updated before reading
 		 * the doorbell.
 		 */
+		trace_printk("nvme_dbbuf_update_and_check_event 3\n");
 		mb();
-
+		trace_printk("nvme_dbbuf_update_and_check_event 4\n");
 		if (!nvme_dbbuf_need_event(*dbbuf_ei, value, old_value))
 			return false;
 	}
@@ -485,10 +487,13 @@ static inline void nvme_write_sq_db(struct nvme_queue *nvmeq, bool write_sq)
 		if (next_tail != nvmeq->last_sq_tail)
 			return;
 	}
-
+	trace_printk("nvme_write_sq_db 1\n");
 	if (nvme_dbbuf_update_and_check_event(nvmeq->sq_tail,
-			nvmeq->dbbuf_sq_db, nvmeq->dbbuf_sq_ei))
+			nvmeq->dbbuf_sq_db, nvmeq->dbbuf_sq_ei)) {
+		trace_printk("nvme_write_sq_db 2\n");
 		writel(nvmeq->sq_tail, nvmeq->q_db);
+	}
+	trace_printk("nvme_write_sq_db 3\n");
 	nvmeq->last_sq_tail = nvmeq->sq_tail;
 }
 
@@ -501,12 +506,16 @@ static inline void nvme_write_sq_db(struct nvme_queue *nvmeq, bool write_sq)
 static void nvme_submit_cmd(struct nvme_queue *nvmeq, struct nvme_command *cmd,
 			    bool write_sq)
 {
+	trace_printk("nvme_submit_cmd 1\n");
 	spin_lock(&nvmeq->sq_lock);
+	trace_printk("nvme_submit_cmd 2\n");
 	memcpy(nvmeq->sq_cmds + (nvmeq->sq_tail << nvmeq->sqes),
 	       cmd, sizeof(*cmd));
 	if (++nvmeq->sq_tail == nvmeq->q_depth)
 		nvmeq->sq_tail = 0;
+	trace_printk("nvme_submit_cmd 3\n");
 	nvme_write_sq_db(nvmeq, write_sq);
+	trace_printk("nvme_submit_cmd 4\n");
 	spin_unlock(&nvmeq->sq_lock);
 }
 
