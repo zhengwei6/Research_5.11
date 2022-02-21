@@ -49,6 +49,8 @@
 #include <linux/printk.h>
 #include <linux/dax.h>
 #include <linux/psi.h>
+#include <linux/time.h>
+#include <linux/timekeeping.h>
 
 #include <asm/tlbflush.h>
 #include <asm/div64.h>
@@ -1218,6 +1220,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		if (!ignore_references)
 			references = page_check_references(page, sc);
+		/*
 		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN || references == PAGEREF_ACTIVATE) {
 			if (PageAnon(page) && PageSwapBacked(page)) {
 				struct anon_vma *anon_vma;
@@ -1266,7 +1269,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 				if (anon_vma)
 					page_unlock_anon_vma_read(anon_vma);
 			}
-		}
+		}*/
 skip:
 		switch (references) {
 		case PAGEREF_ACTIVATE:
@@ -1696,9 +1699,10 @@ static unsigned long isolate_lru_pages(unsigned long nr_to_scan,
 	unsigned long nr_skipped[MAX_NR_ZONES] = { 0, };
 	unsigned long skipped = 0;
 	unsigned long scan, total_scan, nr_pages;
+ 
 	LIST_HEAD(pages_skipped);
 	isolate_mode_t mode = (sc->may_unmap ? 0 : ISOLATE_UNMAPPED);
-
+	
 	total_scan = 0;
 	scan = 0;
 	while (scan < nr_to_scan && !list_empty(src)) {
@@ -1757,7 +1761,6 @@ busy:
 			list_move(&page->lru, src);
 		}
 	}
-
 	/*
 	 * Splice any skipped pages to the start of the LRU list. Note that
 	 * this disrupts the LRU order when reclaiming for lower zones but
@@ -1778,6 +1781,7 @@ busy:
 		}
 	}
 	*nr_scanned = total_scan;
+	
 	trace_mm_vmscan_lru_isolate(sc->reclaim_idx, sc->order, nr_to_scan,
 				    total_scan, skipped, nr_taken, mode, lru);
 	update_lru_sizes(lruvec, lru, nr_zone_taken);
@@ -1972,7 +1976,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum vm_event_item item;
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 	bool stalled = false;
-
+	ktime_t ktime;
 	while (unlikely(too_many_isolated(pgdat, file, sc))) {
 		if (stalled)
 			return 0;
@@ -2004,9 +2008,12 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 
 	if (nr_taken == 0)
 		return 0;
-
+	
+	ktime = ktime_get();
 	nr_reclaimed = shrink_page_list(&page_list, pgdat, sc, &stat, false);
-
+	ktime = ktime_sub(ktime_get(), ktime);
+	printk("%lu %u\n", nr_taken, nr_reclaimed, ktime);
+	
 	spin_lock_irq(&lruvec->lru_lock);
 	move_pages_to_lru(lruvec, &page_list);
 
@@ -2083,6 +2090,8 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	unsigned nr_rotated = 0;
 	int file = is_file_lru(lru);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
+	ktime_t ktime;
+	unsigned long has_taken = 0;
 
 	lru_add_drain();
 
@@ -2098,7 +2107,7 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	__count_memcg_events(lruvec_memcg(lruvec), PGREFILL, nr_scanned);
 
 	spin_unlock_irq(&lruvec->lru_lock);
-
+	ktime = ktime_get();
 	while (!list_empty(&l_hold)) {
 		cond_resched();
 		page = lru_to_page(&l_hold);
@@ -2134,12 +2143,13 @@ static void shrink_active_list(unsigned long nr_to_scan,
 				continue;
 			}
 		}
-
+		has_taken += 1;
 		ClearPageActive(page);	/* we are de-activating */
 		SetPageWorkingset(page);
 		list_add(&page->lru, &l_inactive);
 	}
-
+	ktime = ktime_sub(ktime_get(), ktime);
+	//printk("active_list interval: %ld nr_taken: %lu has_taken: %lu\n", (long int)ktime, nr_taken, has_taken);
 	/*
 	 * Move pages back to the lru list.
 	 */
@@ -2963,7 +2973,7 @@ static void shrink_zones(struct zonelist *zonelist, struct scan_control *sc)
 	unsigned long nr_soft_scanned;
 	gfp_t orig_mask;
 	pg_data_t *last_pgdat = NULL;
-
+	//printk("direct\n");
 	/*
 	 * If the number of buffer_heads in the machine exceeds the maximum
 	 * allowed level, force direct reclaim to scan the highmem zone as
@@ -3312,7 +3322,7 @@ unsigned long try_to_free_pages(struct zonelist *zonelist, int order,
 	BUILD_BUG_ON(MAX_ORDER > S8_MAX);
 	BUILD_BUG_ON(DEF_PRIORITY > S8_MAX);
 	BUILD_BUG_ON(MAX_NR_ZONES > S8_MAX);
-
+	
 	/*
 	 * Do not enter reclaim if fatal signal was delivered while throttled.
 	 * 1 is returned so that the page allocator does not OOM kill at this
@@ -3555,7 +3565,7 @@ static bool kswapd_shrink_node(pg_data_t *pgdat,
 {
 	struct zone *zone;
 	int z;
-
+	//printk("kswapd\n");
 	/* Reclaim a number of pages proportional to the number of zones */
 	sc->nr_to_reclaim = 0;
 	for (z = 0; z <= sc->reclaim_idx; z++) {
@@ -3613,7 +3623,7 @@ static int balance_pgdat(pg_data_t *pgdat, int order, int highest_zoneidx)
 		.order = order,
 		.may_unmap = 1,
 	};
-
+	
 	set_task_reclaim_state(current, &sc.reclaim_state);
 	psi_memstall_enter(&pflags);
 	__fs_reclaim_acquire();
@@ -3643,7 +3653,7 @@ restart:
 		bool raise_priority = true;
 		bool balanced;
 		bool ret;
-
+		//printk("kswapd\n");
 		sc.reclaim_idx = highest_zoneidx;
 
 		/*
@@ -4233,7 +4243,7 @@ static int __node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned in
 		.may_swap = 1,
 		.reclaim_idx = gfp_zone(gfp_mask),
 	};
-
+	//printk("node_reclaim\n");
 	trace_mm_vmscan_node_reclaim_begin(pgdat->node_id, order,
 					   sc.gfp_mask);
 

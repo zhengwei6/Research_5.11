@@ -487,13 +487,14 @@ static inline void nvme_write_sq_db(struct nvme_queue *nvmeq, bool write_sq)
 		if (next_tail != nvmeq->last_sq_tail)
 			return;
 	}
-	trace_printk("nvme_write_sq_db 1\n");
+
 	if (nvme_dbbuf_update_and_check_event(nvmeq->sq_tail,
 			nvmeq->dbbuf_sq_db, nvmeq->dbbuf_sq_ei)) {
-		trace_printk("nvme_write_sq_db 2\n");
+		//ktime = ktime_get();
 		writel(nvmeq->sq_tail, nvmeq->q_db);
+		//ktime = ktime_sub(ktime_get(), ktime);
+		//printk("%lld ns\n", ktime);
 	}
-	trace_printk("nvme_write_sq_db 3\n");
 	nvmeq->last_sq_tail = nvmeq->sq_tail;
 }
 

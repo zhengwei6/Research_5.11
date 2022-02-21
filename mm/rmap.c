@@ -1063,7 +1063,7 @@ static void __page_set_anon_rmap(struct page *page,
 	anon_vma = (void *) anon_vma + PAGE_MAPPING_ANON;
 	WRITE_ONCE(page->mapping, (struct address_space *) anon_vma);
 	page->index = linear_page_index(vma, address);
-
+	/*
 	if (vma->vm_mm != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing >= 1) {
 		struct rb_root *root = &(vma->anon_vma->refault_rb_root);
 		struct refault_anon_shadow *refault_anon_shadow = search_anon_shadow(root, page->index);
@@ -1092,7 +1092,7 @@ static void __page_set_anon_rmap(struct page *page,
 				}
 			}
 		}
-	}
+	}*/
 }
 
 /**
@@ -1653,6 +1653,7 @@ static bool try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 		} else if (PageAnon(page)) {
 			swp_entry_t entry = { .val = page_private(subpage) };
 			pte_t swp_pte;
+			/*
 			if (PageSwapBacked(page) && vma != NULL && vma->vm_mm != NULL && vma->vm_mm->owner != NULL  && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing >= 1) { 
 				struct anon_vma *anon_vma = page_lock_anon_vma_read(page);
 				if (anon_vma != NULL) {
@@ -1673,6 +1674,7 @@ static bool try_to_unmap_one(struct page *page, struct vm_area_struct *vma,
 				if (anon_vma)
 					page_unlock_anon_vma_read(anon_vma);
 			}
+			*/
 			/*
 			 * Store the swap location in the pte.
 			 * See handle_pte_fault() ...
