@@ -60,21 +60,9 @@ struct anon_vma {
 
 	/* Interval tree of private "related" vmas */
 	struct rb_root_cached rb_root;
-	struct rb_root refault_rb_root;	
+	bool is_real_time;
+	struct pin_page_control *pin_page_list;
 };
-
-struct refault_anon_shadow {
-	struct rb_node node;
-	struct lruvec *lruvec;
-	pgoff_t index;
-	unsigned long inactive_age_shadow;
-	unsigned long refault_count;
-	unsigned long refault_budget;
-	unsigned long refault_max_budget;
-};
-
-struct refault_anon_shadow *search_anon_shadow(struct rb_root *root, pgoff_t index);
-int insert_anon_shadow(struct rb_root *root, struct refault_anon_shadow *data);
 
 /*
  * The copy-on-write semantics of fork mean that an anon_vma

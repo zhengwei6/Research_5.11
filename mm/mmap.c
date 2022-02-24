@@ -47,6 +47,7 @@
 #include <linux/pkeys.h>
 #include <linux/oom.h>
 #include <linux/sched/mm.h>
+#include <linux/mm_inline.h>
 
 #include <linux/uaccess.h>
 #include <asm/cacheflush.h>
@@ -3205,7 +3206,33 @@ void exit_mmap(struct mm_struct *mm)
 			vma = vma->vm_next;
 		}
 	}
-
+	/*
+	printk("in exit_mmap\n");
+	if (mm->is_real_time == 1) {
+		struct list_head *pin_page_ptr;
+		struct vm_area_struct *vma = mm->mmap;
+		printk("real time exit_mmap\n");
+		list_for_each(pin_page_ptr, &mm->owner->dl.pin_page_list.pin_page_head) {
+			struct page *page = list_entry(pin_page_ptr, struct page, lru);
+			enum lru_list lru = page_lru(page);
+			int nr_pages =  thp_nr_pages(page);
+			update_lru_size(mm->owner->dl.pin_page_list.lruvec, lru, page_zonenum(page), nr_pages);
+			__list_del(pin_page_ptr->prev, pin_page_ptr->next);
+			list_add(&page->lru, &mm->owner->dl.pin_page_list.lruvec->lists[lru]);
+		}
+		while (vma) {
+			struct list_head *anon_vma_chain_head;
+			list_for_each(anon_vma_chain_head, &vma->anon_vma_chain) {
+				struct anon_vma_chain *avc = list_entry(anon_vma_chain_head, struct anon_vma_chain, same_vma);
+				if (avc != NULL) {
+					avc->anon_vma->is_real_time = 0;
+					avc->anon_vma->pin_page_list = NULL;
+				}
+			}
+			vma = vma->vm_next;
+		}
+	}
+	*/
 	arch_exit_mmap(mm);
 
 	vma = mm->mmap;

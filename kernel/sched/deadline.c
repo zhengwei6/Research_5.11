@@ -17,7 +17,7 @@
  */
 #include "sched.h"
 #include "pelt.h"
-
+#include <linux/rmap.h>
 struct dl_bandwidth def_dl_bandwidth;
 
 static inline struct task_struct *dl_task_of(struct sched_dl_entity *dl_se)
@@ -2762,7 +2762,28 @@ int sched_dl_overflow(struct task_struct *p, int policy,
 void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 {
 	struct sched_dl_entity *dl_se = &p->dl;
+	struct mm_struct *real_time_mm = p->mm;
+	
+	if (real_time_mm != NULL) {
+		struct vm_area_struct *cur = real_time_mm->mmap;
+		while (cur != NULL) {
+			struct list_head *anon_vma_chain_head;
+			list_for_each(anon_vma_chain_head, &cur->anon_vma_chain) {
+				struct anon_vma_chain *avc = list_entry(anon_vma_chain_head, struct anon_vma_chain, same_vma);
+				if (avc != NULL) {
+					avc->anon_vma->is_real_time = 1;
+					avc->anon_vma->pin_page_list = &dl_se->pin_page_list;
+				}
+			}
+			cur = cur->vm_next;
+		}
+	}
 
+	p->mm->is_real_time = 1;
+	dl_se->pin_page_list.num_pin_page = 0;
+	dl_se->pin_page_list.max_pin_page = 0;
+	dl_se->pin_page_list.push_able    = 1;
+	INIT_LIST_HEAD(&dl_se->pin_page_list.pin_page_head);
 	dl_se->dl_runtime = attr->sched_runtime;
 	dl_se->dl_deadline = attr->sched_deadline;
 	dl_se->dl_period = attr->sched_period ?: dl_se->dl_deadline;

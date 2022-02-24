@@ -403,7 +403,7 @@ struct mm_struct {
 		unsigned long task_size;	/* size of task vm space */
 		unsigned long highest_vm_end;	/* highest vma end address */
 		pgd_t * pgd;
-
+		bool is_real_time;
 #ifdef CONFIG_MEMBARRIER
 		/**
 		 * @membarrier_state: Flags controlling membarrier behavior.

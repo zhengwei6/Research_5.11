@@ -208,6 +208,12 @@ int __anon_vma_prepare(struct vm_area_struct *vma)
 		anon_vma_chain_link(vma, avc, anon_vma);
 		/* vma reference or self-parent link for new root */
 		anon_vma->degree++;
+		if (mm->owner != NULL && mm->owner->dl.dl_runtime > 0) {
+			anon_vma->is_real_time = 1;
+		}
+		else {
+			anon_vma->is_real_time = 0;
+		}
 		allocated = NULL;
 		avc = NULL;
 	}
@@ -2037,44 +2043,6 @@ void hugepage_add_new_anon_rmap(struct page *page,
 		atomic_set(compound_pincount_ptr(page), 0);
 
 	__page_set_anon_rmap(page, vma, address, 1);
-}
-
-struct refault_anon_shadow *search_anon_shadow(struct rb_root *root, 
-			pgoff_t index)
-{
-	struct rb_node *node = root->rb_node;
-	while (node) {
-		struct refault_anon_shadow *data = rb_entry(node, struct refault_anon_shadow, node);
-		if (data->index < index) {
-			node = node->rb_right;
-		}
-		else if (data->index > index) {
-			node = node->rb_left;
-		}
-		else {
-			return data;
-		}
-	}
-	return NULL;
-}
-
-int insert_anon_shadow(struct rb_root *root, struct refault_anon_shadow *data)
-{
-	struct rb_node **new = &(root->rb_node), *parent = NULL;
-	struct refault_anon_shadow *this;
-	while (*new) {
-		this = rb_entry(*new, struct refault_anon_shadow, node);
-		parent = *new;
-		if (this->index < data->index)
-			new = &((*new)->rb_right);
-		else if (this->index > data->index)
-			new = &((*new)->rb_left);
-		else
-			return 0;
-	}
-	rb_link_node(&data->node, parent, new);
-	rb_insert_color(&data->node, root);
-	return 1;
 }
 
 #endif /* CONFIG_HUGETLB_PAGE */

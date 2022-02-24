@@ -506,6 +506,14 @@ struct sched_rt_entity {
 #endif
 } __randomize_layout;
 
+struct pin_page_control {
+	struct list_head pin_page_head;
+	struct lruvec *lruvec;
+	int num_pin_page;
+	int max_pin_page;
+	bool push_able;
+};
+
 struct sched_dl_entity {
 	struct rb_node			rb_node;
 
@@ -573,7 +581,7 @@ struct sched_dl_entity {
 	 * time.
 	 */
 	struct hrtimer inactive_timer;
-
+	struct pin_page_control pin_page_list;
 #ifdef CONFIG_RT_MUTEXES
 	/*
 	 * Priority Inheritance. When a DEADLINE scheduling entity is boosted

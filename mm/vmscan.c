@@ -1220,6 +1220,19 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		if (!ignore_references)
 			references = page_check_references(page, sc);
+		/*	
+		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN || references == PAGEREF_ACTIVATE) {
+			if (PageAnon(page) && PageSwapBacked(page)) {
+				struct anon_vma *anon_vma;
+				anon_vma =  page_lock_anon_vma_read(page);
+				if (anon_vma != NULL && anon_vma->is_real_time == 1) {
+					printk("real time page\n");
+				}
+				if (anon_vma)
+					page_unlock_anon_vma_read(anon_vma);
+			}
+		}
+		*/
 		/*
 		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN || references == PAGEREF_ACTIVATE) {
 			if (PageAnon(page) && PageSwapBacked(page)) {
@@ -1976,7 +1989,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	enum vm_event_item item;
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
 	bool stalled = false;
-	ktime_t ktime;
+
 	while (unlikely(too_many_isolated(pgdat, file, sc))) {
 		if (stalled)
 			return 0;
@@ -2008,11 +2021,8 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 
 	if (nr_taken == 0)
 		return 0;
-	
-	ktime = ktime_get();
 	nr_reclaimed = shrink_page_list(&page_list, pgdat, sc, &stat, false);
-	ktime = ktime_sub(ktime_get(), ktime);
-	printk("%lu %u\n", nr_taken, nr_reclaimed, ktime);
+	//printk("%lu %u\n", nr_taken, nr_reclaimed, ktime);
 	
 	spin_lock_irq(&lruvec->lru_lock);
 	move_pages_to_lru(lruvec, &page_list);
@@ -2090,7 +2100,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	unsigned nr_rotated = 0;
 	int file = is_file_lru(lru);
 	struct pglist_data *pgdat = lruvec_pgdat(lruvec);
-	ktime_t ktime;
 	unsigned long has_taken = 0;
 
 	lru_add_drain();
@@ -2107,7 +2116,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 	__count_memcg_events(lruvec_memcg(lruvec), PGREFILL, nr_scanned);
 
 	spin_unlock_irq(&lruvec->lru_lock);
-	ktime = ktime_get();
 	while (!list_empty(&l_hold)) {
 		cond_resched();
 		page = lru_to_page(&l_hold);
@@ -2117,7 +2125,7 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			putback_lru_page(page);
 			continue;
 		}
-
+		
 		if (unlikely(buffer_heads_over_limit)) {
 			if (page_has_private(page) && trylock_page(page)) {
 				if (page_has_private(page))
@@ -2137,6 +2145,22 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			 * IO, plus JVM can create lots of anon VM_EXEC pages,
 			 * so we ignore them here.
 			 */
+			if (PageAnon(page) && PageSwapBacked(page)) {
+				struct anon_vma *anon_vma = page_anon_vma(page);
+				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_list != NULL && anon_vma->pin_page_list->push_able) {
+					ClearPageActive(page);
+					/*
+					SetPageWorkingset(page);
+					*/
+					if (anon_vma->pin_page_list->lruvec == NULL)
+						anon_vma->pin_page_list->lruvec = lruvec;
+					list_add(&page->lru, &anon_vma->pin_page_list->pin_page_head);
+					anon_vma->pin_page_list->num_pin_page += 1;
+					//printk("%p %d\n", (void *)anon_vma->pin_page_list->lruvec, anon_vma->pin_page_list->num_pin_page);
+					continue;
+				}
+			}
+
 			if ((vm_flags & VM_EXEC) && page_is_file_lru(page)) {
 				nr_rotated += thp_nr_pages(page);
 				list_add(&page->lru, &l_active);
@@ -2148,7 +2172,6 @@ static void shrink_active_list(unsigned long nr_to_scan,
 		SetPageWorkingset(page);
 		list_add(&page->lru, &l_inactive);
 	}
-	ktime = ktime_sub(ktime_get(), ktime);
 	//printk("active_list interval: %ld nr_taken: %lu has_taken: %lu\n", (long int)ktime, nr_taken, has_taken);
 	/*
 	 * Move pages back to the lru list.
