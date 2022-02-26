@@ -2147,17 +2147,27 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			 */
 			if (PageAnon(page) && PageSwapBacked(page)) {
 				struct anon_vma *anon_vma = page_anon_vma(page);
-				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_list != NULL && anon_vma->pin_page_list->push_able) {
-					ClearPageActive(page);
-					/*
-					SetPageWorkingset(page);
-					*/
+				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_list != NULL) {
 					if (anon_vma->pin_page_list->lruvec == NULL)
 						anon_vma->pin_page_list->lruvec = lruvec;
-					list_add(&page->lru, &anon_vma->pin_page_list->pin_page_head);
-					anon_vma->pin_page_list->num_pin_page += 1;
-					//printk("%p %d\n", (void *)anon_vma->pin_page_list->lruvec, anon_vma->pin_page_list->num_pin_page);
-					continue;
+					if (anon_vma->pin_page_list->push_able == 0) {
+						struct list_head *list = &anon_vma->pin_page_list->pin_page_head;
+						anon_vma->pin_page_list->cur_count += 1;
+						if (anon_vma->pin_page_list->cur_count >= 32 && !list_empty(list)) {
+							// put the list to l_inactive;
+							struct page *page_tmp = lru_to_page(list);
+							list_del(&page_tmp->lru);
+							list_add(&page->lru, &l_inactive);
+							page_tmp = lru_to_page(&anon_vma->
+							anon_vma->pin_page_list->cur_count = 0;
+						}
+					}
+					else {
+						ClearPageActive(page);
+						list_add(&page->lru, &anon_vma->pin_page_list->pin_page_head);
+						anon_vma->pin_page_list->num_pin_page += 1;
+						continue;
+					}
 				}
 			}
 

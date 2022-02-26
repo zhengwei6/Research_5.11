@@ -1639,7 +1639,7 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 		return;
 	}
-
+	p->dl.pin_page_list.push_able = 1;
 	enqueue_dl_entity(&p->dl, flags);
 
 	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
@@ -1654,6 +1654,7 @@ static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
+	p->dl.pin_page_list.push_able = 0;
 	update_curr_dl(rq);
 	__dequeue_task_dl(rq, p, flags);
 
@@ -2783,6 +2784,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->pin_page_list.num_pin_page = 0;
 	dl_se->pin_page_list.max_pin_page = 0;
 	dl_se->pin_page_list.push_able    = 1;
+	dl_se->pin_page_list.cur_count    = 0;
 	INIT_LIST_HEAD(&dl_se->pin_page_list.pin_page_head);
 	dl_se->dl_runtime = attr->sched_runtime;
 	dl_se->dl_deadline = attr->sched_deadline;

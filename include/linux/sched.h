@@ -509,6 +509,7 @@ struct sched_rt_entity {
 struct pin_page_control {
 	struct list_head pin_page_head;
 	struct lruvec *lruvec;
+	int cur_count;
 	int num_pin_page;
 	int max_pin_page;
 	bool push_able;
