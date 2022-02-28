@@ -2759,6 +2759,18 @@ int sched_dl_overflow(struct task_struct *p, int policy,
  * Only the static values are considered here, the actual runtime and the
  * absolute deadline will be properly calculated when the task is enqueued
  * for the first time with its new policy.
+ * pin_page_list
+ * 	struct list_head pin_page_chunk_head;
+ *	struct lruvec *lruvec;
+ *	struct mem_cgroup *mem_cgroup;
+ *	struct list_head *victim_chunk;
+ *	int cur_count;
+ *	int cur_pin_pages;
+ *	int max_pin_pages;
+ *	int max_page_per_chunk;
+ *	int check_first_k;
+ *	int check_n;
+ *	bool push_able;
  */
 void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 {
@@ -2781,11 +2793,15 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	}
 
 	p->mm->is_real_time = 1;
-	dl_se->pin_page_list.num_pin_page = 0;
-	dl_se->pin_page_list.max_pin_page = 0;
+	dl_se->pin_page_list.cur_count = 0;
+	dl_se->pin_page_list.cur_pin_pages = 0;
+	dl_se->pin_page_list.max_pin_pages = 3000;
+	dl_se->pin_page_list.max_page_per_chunk = 32;
+	dl_se->pin_page_list.check_first_k = 5;
+	dl_se->pin_page_list.check_n       = 3;
 	dl_se->pin_page_list.push_able    = 1;
-	dl_se->pin_page_list.cur_count    = 0;
-	INIT_LIST_HEAD(&dl_se->pin_page_list.pin_page_head);
+	INIT_LIST_HEAD(&dl_se->pin_page_list.pin_page_chunk_head);
+
 	dl_se->dl_runtime = attr->sched_runtime;
 	dl_se->dl_deadline = attr->sched_deadline;
 	dl_se->dl_period = attr->sched_period ?: dl_se->dl_deadline;

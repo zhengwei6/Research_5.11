@@ -1283,7 +1283,6 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 					page_unlock_anon_vma_read(anon_vma);
 			}
 		}*/
-skip:
 		switch (references) {
 		case PAGEREF_ACTIVATE:
 			goto activate_locked;
@@ -2068,6 +2067,116 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 }
 
 /*
+ * alloc_pin_page_chunk() is a helper for insert_page_to_control().  
+ * It returns the new chunk with cur_count = 0.
+ */
+static struct pin_page_chunk *alloc_pin_page_chunk(void) 
+{
+	struct pin_page_chunk *pin_page_chunk = (struct pin_page_chunk *)kmalloc(sizeof(struct pin_page_chunk), GFP_KERNEL);
+	pin_page_chunk->cur_count = 0;
+	return pin_page_chunk;
+}
+
+/*
+ * insert_page_to_chunk() is a helper for insert_page_to_control().
+ * It insert the page to the pin_page_chunk.
+ */
+static void insert_page_to_chunk(struct pin_page_chunk *pin_page_chunk, struct page *page, int max_page_per_chunk) 
+{
+	list_add(&page->lru, &pin_page_chunk->pin_page_list_head);
+	pin_page_chunk->cur_count += 1;
+	return;
+}
+
+/*
+ * insert_page_to_control() moves pages from the l_hold to the pin_page_control.
+ * It returns false if the cur_pin_pages >= max_pin_pages.
+ */
+static bool insert_page_to_control(struct pin_page_control *pin_page_control, struct page *page)
+{
+	int max_page_per_chunk = pin_page_control->max_page_per_chunk;
+	struct pin_page_chunk *cur_chunk_entry;
+	struct list_head *cur_chunk;
+	
+	if (pin_page_control->cur_pin_pages >= pin_page_control->max_pin_pages)
+		return false;
+	
+	cur_chunk = pin_page_control->pin_page_chunk_head.next;
+	cur_chunk_entry = list_entry(cur_chunk, struct pin_page_chunk, pin_page_chunk_head);
+	if (list_empty(&pin_page_control->pin_page_chunk_head) || cur_chunk_entry->cur_count >= max_page_per_chunk) {
+		struct pin_page_chunk *pin_page_chunk = alloc_pin_page_chunk();
+		list_add(&pin_page_chunk->pin_page_chunk_head, &pin_page_control->pin_page_chunk_head);
+		cur_chunk_entry = pin_page_chunk;
+	}
+
+	insert_page_to_chunk(cur_chunk_entry, page, max_page_per_chunk);
+	pin_page_control->cur_pin_pages += 1;
+	return true;
+}
+
+/*
+ * del_victim_chunk() finds the victim chunk from the pin_page_control 
+ * and deletes pages from the victim chunk and insert these pages to the insert_list.
+ * It returns false if the pin_page_control == NULL or it finds for one cycle.
+ */
+bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_head *insert_list) 
+{
+	struct pin_page_chunk *victim_chunk;
+	struct page *page;
+	int count = 0;
+	int i;
+	LIST_HEAD(l_hold);
+
+	if (pin_page_control == NULL || list_empty(&pin_page_control->pin_page_chunk_head))
+		return false;
+
+	if (pin_page_control->victim_chunk == NULL) {
+		pin_page_control->victim_chunk = list_entry(pin_page_control->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head);
+	}
+
+	victim_chunk = pin_page_control->victim_chunk;
+
+	while (count < pin_page_control->check_n) {
+		if (victim_chunk == list_entry(pin_page_control->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head))
+			goto next_victim;
+		count = 0;
+		i = 0;
+		while (!list_empty(&victim_chunk->pin_page_list_head) && (i < pin_page_control->check_first_k)) {
+			int referenced_ptes, referenced_page;
+			unsigned long vm_flags;
+			page = lru_to_page(&victim_chunk->pin_page_list_head);
+			list_del(&page->lru);
+			referenced_ptes = page_referenced(page, 1, pin_page_control->mem_cgroup, &vm_flags);
+			referenced_page = TestClearPageReferenced(page);
+			if (referenced_ptes || referenced_page)
+				count += 1;
+			list_add(&page->lru, &l_hold);
+			i += 1;
+		}
+		count = i - count;
+		while (!list_empty(&l_hold)) {
+			page = lru_to_page(&l_hold);
+			list_del(&page->lru);
+			list_add(&page->lru, &victim_chunk->pin_page_list_head);
+		}
+next_victim:
+		victim_chunk = list_entry(victim_chunk->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head);
+		if (victim_chunk == pin_page_control->victim_chunk) return false;
+	}
+
+	while (!list_empty(&victim_chunk->pin_page_list_head)) {
+		page = lru_to_page(&victim_chunk->pin_page_list_head);
+		pin_page_control->cur_pin_pages -= 1;
+		list_del(&page->lru);
+		list_add(&page->lru, insert_list);
+	}
+
+	list_del(&victim_chunk->pin_page_chunk_head);
+	kfree(victim_chunk);
+	return true;
+}
+
+/*
  * shrink_active_list() moves pages from the active LRU to the inactive LRU.
  *
  * We move them the other way if the page is referenced by one or more
@@ -2148,24 +2257,21 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			if (PageAnon(page) && PageSwapBacked(page)) {
 				struct anon_vma *anon_vma = page_anon_vma(page);
 				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_list != NULL) {
-					if (anon_vma->pin_page_list->lruvec == NULL)
+					if (anon_vma->pin_page_list->lruvec == NULL) {
 						anon_vma->pin_page_list->lruvec = lruvec;
+						anon_vma->pin_page_list->mem_cgroup = sc->target_mem_cgroup;
+					}
 					if (anon_vma->pin_page_list->push_able == 0) {
-						struct list_head *list = &anon_vma->pin_page_list->pin_page_head;
+						struct list_head *pin_page_chunk_head = &anon_vma->pin_page_list->pin_page_chunk_head;
 						anon_vma->pin_page_list->cur_count += 1;
-						if (anon_vma->pin_page_list->cur_count >= 32 && !list_empty(list)) {
-							// put the list to l_inactive;
-							struct page *page_tmp = lru_to_page(list);
-							list_del(&page_tmp->lru);
-							list_add(&page->lru, &l_inactive);
-							page_tmp = lru_to_page(&anon_vma->
-							anon_vma->pin_page_list->cur_count = 0;
+						if (anon_vma->pin_page_list->cur_count >= 32 && !list_empty(pin_page_chunk_head)) {
+							if (del_victim_chunk(anon_vma->pin_page_list, &l_inactive))
+								anon_vma->pin_page_list->cur_count = 0;
 						}
 					}
 					else {
 						ClearPageActive(page);
-						list_add(&page->lru, &anon_vma->pin_page_list->pin_page_head);
-						anon_vma->pin_page_list->num_pin_page += 1;
+						insert_page_to_control(anon_vma->pin_page_list, page);
 						continue;
 					}
 				}

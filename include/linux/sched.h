@@ -506,12 +506,23 @@ struct sched_rt_entity {
 #endif
 } __randomize_layout;
 
-struct pin_page_control {
-	struct list_head pin_page_head;
-	struct lruvec *lruvec;
+struct pin_page_chunk {
+	struct list_head pin_page_list_head;
+	struct list_head pin_page_chunk_head;
 	int cur_count;
-	int num_pin_page;
-	int max_pin_page;
+};
+
+struct pin_page_control {
+	struct list_head pin_page_chunk_head;
+	struct lruvec *lruvec;
+	struct mem_cgroup *mem_cgroup;
+	struct pin_page_chunk *victim_chunk;
+	int cur_count;
+	int cur_pin_pages;
+	int max_pin_pages;
+	int max_page_per_chunk;
+	int check_first_k;
+	int check_n;
 	bool push_able;
 };
 

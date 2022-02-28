@@ -1328,69 +1328,32 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 		struct lruvec *lruvec = mm->owner->dl.pin_page_list.lruvec;
 		int nr_pages, nr_moved = 0;
 		enum lru_list lru;
-		struct list_head *list = &mm->owner->dl.pin_page_list.pin_page_head;
+		struct list_head *pin_page_chunk_head = &mm->owner->dl.pin_page_list.pin_page_chunk_head;
+		struct pin_page_chunk *pin_page_chunk_entry;
+		struct list_head *list;
 		struct page *page;
-
+		
 		spin_lock_irq(&lruvec->lru_lock);
-		while (lruvec != NULL && !list_empty(list)) {
-			page = lru_to_page(list);
-			if (page == NULL) break;
-			list_del(&page->lru);
-			SetPageLRU(page);
-			if (unlikely(put_page_testzero(page))) {
-				/*
-				__ClearPageLRU(page);
-				__ClearPageActive(page);
-				if (unlikely(PageCompound(page))) {
-					spin_unlock_irq(&lruvec->lru_lock);
-					destroy_compound_page(page);
-					spin_lock_irq(&lruvec->lru_lock);
-				} else 
-					list_add(&page->lru, &pages_to_free);
-				continue;*/
+		while (lruvec != NULL && !list_empty(pin_page_chunk_head)) {
+			pin_page_chunk_entry = list_entry(pin_page_chunk_head->next, struct pin_page_chunk, pin_page_chunk_head);
+			list_del(&pin_page_chunk_entry->pin_page_chunk_head);
+			list = &pin_page_chunk_entry->pin_page_list_head;
+			while (lruvec != NULL && !list_empty(list)) {
+				page = lru_to_page(list);
+				if (page == NULL) break;
+				list_del(&page->lru);
+				SetPageLRU(page);
+				if (unlikely(put_page_testzero(page))) {}
+				lru = page_lru(page);
+				nr_pages = thp_nr_pages(page);
+				update_lru_size(lruvec, lru, page_zonenum(page), nr_pages);
+				list_add(&page->lru, &lruvec->lists[lru]);
+				nr_moved += nr_pages;
 			}
-			lru = page_lru(page);
-			nr_pages = thp_nr_pages(page);
-			update_lru_size(lruvec, lru, page_zonenum(page), nr_pages);
-			list_add(&page->lru, &lruvec->lists[lru]);
-			nr_moved += nr_pages;
-			printk("%d %d\n", lru, nr_moved);
+			kfree(pin_page_chunk_entry);
 		}
 		spin_unlock_irq(&lruvec->lru_lock);
-		printk("123\n");
-		/*
-		list_for_each(pin_page_ptr, &mm->owner->dl.pin_page_list.pin_page_head) {
-            struct page *page = list_entry(pin_page_ptr, struct page, lru);
-			struct lruvec *lruvec = mm->owner->dl.pin_page_list.lruvec;
-			enum lru_list lru = page_lru_base_type(page);
-            int nr_pages =  thp_nr_pages(page);
-			spin_lock_irq(&lruvec->lru_lock);
-			// clear page active
-			ClearPageActive(page);
-            if (mm->owner->dl.pin_page_list.lruvec == NULL)
-				printk("lruvec null\n");
-			else {
-				//local_lock(&lru_pvecs.lock);
-				pin_page_ptr->prev->next = pin_page_ptr->next;
-				pin_page_ptr->next->prev = pin_page_ptr->prev;
-				pin_page_ptr = pin_page_ptr->prev;
-            	//__list_del(pin_page_ptr->prev, pin_page_ptr->next);
-				//list_add(&page->lru, &mm->owner->dl.pin_page_list.lruvec->lists[lru]);
-				move_pages_to_lru(lruvec, );
-				lru_cache_add(page);
-				//put_page(page);
-				//local_unlock(&lru_pvecs.lock);
-				//putback_lru_page(page);
-				//printk("%p\n", (void *)mm->owner->dl.pin_page_list.lruvec);
-				//lru_cache_add(page);
-				//put_page(page);
-			}
-			spin_unlock_irq(&lruvec->lru_lock);
-			//get_page(page);
-			//lru_cache_add(page);
-			//put_page(page);
-		}
-		*/
+		printk("move %d\n", nr_moved);
 		while (vma) {
             struct list_head *anon_vma_chain_head;
             list_for_each(anon_vma_chain_head, &vma->anon_vma_chain) {
