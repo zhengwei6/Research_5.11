@@ -2123,22 +2123,22 @@ bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_hea
 {
 	struct pin_page_chunk *victim_chunk;
 	struct page *page;
+	struct list_head *tmp;
 	int count = 0;
 	int i;
 	LIST_HEAD(l_hold);
 
 	if (pin_page_control == NULL || list_empty(&pin_page_control->pin_page_chunk_head))
 		return false;
-
+	
+	/* we set the victim_chunk for pin_page_control if it is not set. */
 	if (pin_page_control->victim_chunk == NULL) {
 		pin_page_control->victim_chunk = list_entry(pin_page_control->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head);
 	}
 
 	victim_chunk = pin_page_control->victim_chunk;
-
-	while (count < pin_page_control->check_n) {
-		if (victim_chunk == list_entry(pin_page_control->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head))
-			goto next_victim;
+	/* we will find the victim chunk with > count unreference pages */
+	while (!list_empty(&pin_page_control->pin_page_chunk_head)) {
 		count = 0;
 		i = 0;
 		while (!list_empty(&victim_chunk->pin_page_list_head) && (i < pin_page_control->check_first_k)) {
@@ -2159,8 +2159,16 @@ bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_hea
 			list_del(&page->lru);
 			list_add(&page->lru, &victim_chunk->pin_page_list_head);
 		}
-next_victim:
-		victim_chunk = list_entry(victim_chunk->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head);
+		if (count >= pin_page_control->check_n) {
+			break;
+		}
+		/* next_victim chunk*/
+		if (victim_chunk->pin_page_chunk_head.next == &pin_page_control->pin_page_chunk_head) {
+			victim_chunk = list_entry(victim_chunk->pin_page_chunk_head.next->next, struct pin_page_chunk, pin_page_chunk_head);
+		}
+		else {
+			victim_chunk = list_entry(victim_chunk->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head);
+		}
 		if (victim_chunk == pin_page_control->victim_chunk) return false;
 	}
 
@@ -2170,9 +2178,20 @@ next_victim:
 		list_del(&page->lru);
 		list_add(&page->lru, insert_list);
 	}
-
+	tmp = victim_chunk->pin_page_chunk_head.next;
 	list_del(&victim_chunk->pin_page_chunk_head);
 	kfree(victim_chunk);
+	if (!list_empty(&pin_page_control->pin_page_chunk_head)) {
+		if (tmp == &pin_page_control->pin_page_chunk_head) {
+			pin_page_control->victim_chunk = list_entry(tmp->next, struct pin_page_chunk, pin_page_chunk_head);
+		}
+		else {
+			pin_page_control->victim_chunk = list_entry(tmp, struct pin_page_chunk, pin_page_chunk_head);
+		}
+	}
+	else {
+		pin_page_control->victim_chunk = NULL;
+	}
 	return true;
 }
 
@@ -2254,13 +2273,18 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			 * IO, plus JVM can create lots of anon VM_EXEC pages,
 			 * so we ignore them here.
 			 */
+			/* we check the anon pages. */
 			if (PageAnon(page) && PageSwapBacked(page)) {
 				struct anon_vma *anon_vma = page_anon_vma(page);
 				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_list != NULL) {
+					/* we set the lruvec if the lruvec is not set.*/
 					if (anon_vma->pin_page_list->lruvec == NULL) {
 						anon_vma->pin_page_list->lruvec = lruvec;
 						anon_vma->pin_page_list->mem_cgroup = sc->target_mem_cgroup;
 					}
+					/* we delete the victim chunk from the pin_page_list and insert it to l_inactive
+					 * if the cur_count is larget than 32 and it also has more than one chunks.
+					 */
 					if (anon_vma->pin_page_list->push_able == 0) {
 						struct list_head *pin_page_chunk_head = &anon_vma->pin_page_list->pin_page_chunk_head;
 						anon_vma->pin_page_list->cur_count += 1;
