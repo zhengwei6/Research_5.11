@@ -2073,6 +2073,7 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 static struct pin_page_chunk *alloc_pin_page_chunk(void) 
 {
 	struct pin_page_chunk *pin_page_chunk = (struct pin_page_chunk *)kmalloc(sizeof(struct pin_page_chunk), GFP_KERNEL);
+	INIT_LIST_HEAD(&pin_page_chunk->pin_page_list_head);
 	pin_page_chunk->cur_count = 0;
 	return pin_page_chunk;
 }
@@ -2081,7 +2082,7 @@ static struct pin_page_chunk *alloc_pin_page_chunk(void)
  * insert_page_to_chunk() is a helper for insert_page_to_control().
  * It insert the page to the pin_page_chunk.
  */
-static void insert_page_to_chunk(struct pin_page_chunk *pin_page_chunk, struct page *page, int max_page_per_chunk) 
+static void insert_page_to_chunk(struct pin_page_chunk *pin_page_chunk, struct page *page) 
 {
 	list_add(&page->lru, &pin_page_chunk->pin_page_list_head);
 	pin_page_chunk->cur_count += 1;
@@ -2101,15 +2102,22 @@ static bool insert_page_to_control(struct pin_page_control *pin_page_control, st
 	if (pin_page_control->cur_pin_pages >= pin_page_control->max_pin_pages)
 		return false;
 	
-	cur_chunk = pin_page_control->pin_page_chunk_head.next;
-	cur_chunk_entry = list_entry(cur_chunk, struct pin_page_chunk, pin_page_chunk_head);
-	if (list_empty(&pin_page_control->pin_page_chunk_head) || cur_chunk_entry->cur_count >= max_page_per_chunk) {
+	if (list_empty(&pin_page_control->pin_page_chunk_head)) {
 		struct pin_page_chunk *pin_page_chunk = alloc_pin_page_chunk();
 		list_add(&pin_page_chunk->pin_page_chunk_head, &pin_page_control->pin_page_chunk_head);
 		cur_chunk_entry = pin_page_chunk;
 	}
 
-	insert_page_to_chunk(cur_chunk_entry, page, max_page_per_chunk);
+	cur_chunk = pin_page_control->pin_page_chunk_head.next;
+	cur_chunk_entry = list_entry(cur_chunk, struct pin_page_chunk, pin_page_chunk_head);
+	
+	if (cur_chunk_entry->cur_count >= max_page_per_chunk) {
+		struct pin_page_chunk *pin_page_chunk = alloc_pin_page_chunk();
+		list_add(&pin_page_chunk->pin_page_chunk_head, &pin_page_control->pin_page_chunk_head);
+		cur_chunk_entry = pin_page_chunk;
+	}
+
+	insert_page_to_chunk(cur_chunk_entry, page);
 	pin_page_control->cur_pin_pages += 1;
 	return true;
 }
@@ -2128,14 +2136,13 @@ bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_hea
 	int i;
 	LIST_HEAD(l_hold);
 
-	if (pin_page_control == NULL || list_empty(&pin_page_control->pin_page_chunk_head))
+	if (pin_page_control == NULL || list_empty(&pin_page_control->pin_page_chunk_head) || pin_page_control->mem_cgroup == NULL)
 		return false;
-	
+
 	/* we set the victim_chunk for pin_page_control if it is not set. */
 	if (pin_page_control->victim_chunk == NULL) {
 		pin_page_control->victim_chunk = list_entry(pin_page_control->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head);
 	}
-
 	victim_chunk = pin_page_control->victim_chunk;
 	/* we will find the victim chunk with > count unreference pages */
 	while (!list_empty(&pin_page_control->pin_page_chunk_head)) {
@@ -2288,15 +2295,26 @@ static void shrink_active_list(unsigned long nr_to_scan,
 					if (anon_vma->pin_page_list->push_able == 0) {
 						struct list_head *pin_page_chunk_head = &anon_vma->pin_page_list->pin_page_chunk_head;
 						anon_vma->pin_page_list->cur_count += 1;
+						printk("del_victim_chunk \n");
 						if (anon_vma->pin_page_list->cur_count >= 32 && !list_empty(pin_page_chunk_head)) {
-							if (del_victim_chunk(anon_vma->pin_page_list, &l_inactive))
+							spin_lock_irq(&anon_vma->pin_page_list->pin_page_lock);
+							if (del_victim_chunk(anon_vma->pin_page_list, &l_inactive)) {
 								anon_vma->pin_page_list->cur_count = 0;
+								printk("del_victim_chunk sucess \n");
+							}
+							spin_unlock_irq(&anon_vma->pin_page_list->pin_page_lock);
 						}
 					}
 					else {
 						ClearPageActive(page);
-						insert_page_to_control(anon_vma->pin_page_list, page);
-						continue;
+						printk("insert_page_to_control \n");
+						spin_lock_irq(&anon_vma->pin_page_list->pin_page_lock);
+						if (insert_page_to_control(anon_vma->pin_page_list, page)) {
+							printk("insert_page_to_control sucess \n");
+							spin_unlock_irq(&anon_vma->pin_page_list->pin_page_lock);
+							continue;
+						}
+						spin_unlock_irq(&anon_vma->pin_page_list->pin_page_lock);
 					}
 				}
 			}

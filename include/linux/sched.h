@@ -507,23 +507,39 @@ struct sched_rt_entity {
 } __randomize_layout;
 
 struct pin_page_chunk {
+	/* it connects all the pages in this chunk. */
 	struct list_head pin_page_list_head;
+	/* pin_page_chunk has prev and next chunks. */
 	struct list_head pin_page_chunk_head;
+	/* how many pages in this chunk. */
 	int cur_count;
 };
 
 struct pin_page_control {
+	/* it connects all the chunks. */
 	struct list_head pin_page_chunk_head;
+	/* all the pages are in the same lruvec. */
 	struct lruvec *lruvec;
+	/* all the pages are in the same mem_cgroup. */
 	struct mem_cgroup *mem_cgroup;
+	/* find the victim chunk from there. */
 	struct pin_page_chunk *victim_chunk;
+	/* count for the cold chunk to be swapped out. */
 	int cur_count;
+	/* count for how many pages are pinned currently. */
 	int cur_pin_pages;
+	/* throttle the maximum pin pages. */
 	int max_pin_pages;
+	/* throttle the maximum pin pages in each chunks. */
 	int max_page_per_chunk;
+	/* we would scan first k pages for each chunks when finding the victim pages.*/
 	int check_first_k;
+	/* check if there is n unreference pages in first k pages for each chunks. */
 	int check_n;
+	/* is push_able? */
 	bool push_able;
+	/* spin lock for control*/
+	spinlock_t pin_page_lock;
 };
 
 struct sched_dl_entity {

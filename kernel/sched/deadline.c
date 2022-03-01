@@ -2799,7 +2799,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->pin_page_list.max_page_per_chunk = 32;
 	dl_se->pin_page_list.check_first_k = 5;
 	dl_se->pin_page_list.check_n       = 3;
-	dl_se->pin_page_list.push_able    = 1;
+	dl_se->pin_page_list.push_able = 0;
 	INIT_LIST_HEAD(&dl_se->pin_page_list.pin_page_chunk_head);
 
 	dl_se->dl_runtime = attr->sched_runtime;

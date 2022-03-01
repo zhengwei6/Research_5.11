@@ -60,7 +60,9 @@ struct anon_vma {
 
 	/* Interval tree of private "related" vmas */
 	struct rb_root_cached rb_root;
+	/* does real time task maps to this page? */
 	bool is_real_time;
+	/* point to the pin_page_control in real time task. */
 	struct pin_page_control *pin_page_list;
 };
 
