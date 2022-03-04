@@ -210,11 +210,11 @@ int __anon_vma_prepare(struct vm_area_struct *vma)
 		anon_vma->degree++;
 		if (mm->owner != NULL && mm->owner->dl.dl_runtime > 0) {
 			anon_vma->is_real_time = 1;
-			anon_vma->pin_page_list = &mm->owner->dl.pin_page_list;
+			anon_vma->pin_page_list = &mm->owner->dl.pin_page_list_anon;
 		}
 		else {
 			anon_vma->is_real_time = 0;
-			anon_vma->pin_page_list = &mm->owner->dl.pin_page_list;
+			anon_vma->pin_page_list = &mm->owner->dl.pin_page_list_anon;
 		}
 		allocated = NULL;
 		avc = NULL;

@@ -1325,14 +1325,17 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 {
 	if (mm != NULL && mm->owner != NULL && mm->is_real_time == 1) {
 		struct vm_area_struct *vma = mm->mmap;
-		struct lruvec *lruvec = mm->owner->dl.pin_page_list.lruvec;
+		struct lruvec *lruvec;
 		int nr_pages, nr_moved = 0;
 		enum lru_list lru;
-		struct list_head *pin_page_chunk_head = &mm->owner->dl.pin_page_list.pin_page_chunk_head;
+		struct list_head *pin_page_chunk_head;
 		struct pin_page_chunk *pin_page_chunk_entry;
 		struct list_head *list;
 		struct page *page;
 		
+		/* anon */
+		lruvec = mm->owner->dl.pin_page_list_anon.lruvec;
+		pin_page_chunk_head = &mm->owner->dl.pin_page_list_anon.pin_page_chunk_head;
 		spin_lock_irq(&lruvec->lru_lock);
 		while (lruvec != NULL && !list_empty(pin_page_chunk_head)) {
 			pin_page_chunk_entry = list_entry(pin_page_chunk_head->next, struct pin_page_chunk, pin_page_chunk_head);
@@ -1353,7 +1356,8 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 			kfree(pin_page_chunk_entry);
 		}
 		spin_unlock_irq(&lruvec->lru_lock);
-		printk("move %d\n", nr_moved);
+		printk("anon move %d\n", nr_moved);
+		nr_moved = 0;
 		while (vma) {
             struct list_head *anon_vma_chain_head;
             list_for_each(anon_vma_chain_head, &vma->anon_vma_chain) {
@@ -1365,6 +1369,30 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
             }
             vma = vma->vm_next;
         }
+		/* file */
+		lruvec = mm->owner->dl.pin_page_list_file.lruvec;
+		pin_page_chunk_head = &mm->owner->dl.pin_page_list_anon.pin_page_chunk_head;
+		spin_lock_irq(&lruvec->lru_lock);
+		while (lruvec != NULL && !list_empty(pin_page_chunk_head)) {
+            pin_page_chunk_entry = list_entry(pin_page_chunk_head->next, struct pin_page_chunk, pin_page_chunk_head);
+            list_del(&pin_page_chunk_entry->pin_page_chunk_head);
+            list = &pin_page_chunk_entry->pin_page_list_head;
+            while (lruvec != NULL && !list_empty(list)) {
+                page = lru_to_page(list);
+                if (page == NULL) break;
+                list_del(&page->lru);
+                SetPageLRU(page);
+                if (unlikely(put_page_testzero(page))) {}
+                lru = page_lru(page);
+                nr_pages = thp_nr_pages(page);
+                update_lru_size(lruvec, lru, page_zonenum(page), nr_pages);
+                list_add(&page->lru, &lruvec->lists[lru]);
+                nr_moved += nr_pages;
+            }
+            kfree(pin_page_chunk_entry);
+        }
+        spin_unlock_irq(&lruvec->lru_lock);
+        printk("file move %d\n", nr_moved);
 	}
 	futex_exit_release(tsk);
 	mm_release(tsk, mm);

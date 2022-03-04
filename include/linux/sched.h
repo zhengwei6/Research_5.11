@@ -609,7 +609,8 @@ struct sched_dl_entity {
 	 * time.
 	 */
 	struct hrtimer inactive_timer;
-	struct pin_page_control pin_page_list;
+	struct pin_page_control pin_page_list_anon;
+	struct pin_page_control pin_page_list_file;
 #ifdef CONFIG_RT_MUTEXES
 	/*
 	 * Priority Inheritance. When a DEADLINE scheduling entity is boosted

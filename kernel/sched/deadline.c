@@ -1639,7 +1639,9 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 		return;
 	}
-	p->dl.pin_page_list.push_able = 1;
+	p->dl.pin_page_list_anon.push_able = 1;
+	p->dl.pin_page_list_file.push_able = 1;
+
 	enqueue_dl_entity(&p->dl, flags);
 
 	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
@@ -1654,7 +1656,8 @@ static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
-	p->dl.pin_page_list.push_able = 0;
+	p->dl.pin_page_list_anon.push_able = 0;
+	p->dl.pin_page_list_file.push_able = 0;
 	update_curr_dl(rq);
 	__dequeue_task_dl(rq, p, flags);
 
@@ -2785,7 +2788,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 				struct anon_vma_chain *avc = list_entry(anon_vma_chain_head, struct anon_vma_chain, same_vma);
 				if (avc != NULL) {
 					avc->anon_vma->is_real_time = 1;
-					avc->anon_vma->pin_page_list = &dl_se->pin_page_list;
+					avc->anon_vma->pin_page_list = &dl_se->pin_page_list_anon;
 				}
 			}
 			cur = cur->vm_next;
@@ -2793,14 +2796,26 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	}
 
 	p->mm->is_real_time = 1;
-	dl_se->pin_page_list.cur_count = 0;
-	dl_se->pin_page_list.cur_pin_pages = 0;
-	dl_se->pin_page_list.max_pin_pages = 3000;
-	dl_se->pin_page_list.max_page_per_chunk = 32;
-	dl_se->pin_page_list.check_first_k = 5;
-	dl_se->pin_page_list.check_n       = 3;
-	dl_se->pin_page_list.push_able = 0;
-	INIT_LIST_HEAD(&dl_se->pin_page_list.pin_page_chunk_head);
+
+	/* anon */
+	dl_se->pin_page_list_anon.cur_count = 0;
+	dl_se->pin_page_list_anon.cur_pin_pages = 0;
+	dl_se->pin_page_list_anon.max_pin_pages = 100000;
+	dl_se->pin_page_list_anon.max_page_per_chunk = 32;
+	dl_se->pin_page_list_anon.check_first_k = 5;
+	dl_se->pin_page_list_anon.check_n       = 3;
+	dl_se->pin_page_list_anon.push_able = 0;
+	INIT_LIST_HEAD(&dl_se->pin_page_list_anon.pin_page_chunk_head);
+	
+	/* file */
+	dl_se->pin_page_list_file.cur_count = 0;
+	dl_se->pin_page_list_file.cur_pin_pages = 0;
+	dl_se->pin_page_list_file.max_pin_pages = 100000;
+	dl_se->pin_page_list_file.max_page_per_chunk = 32;
+	dl_se->pin_page_list_file.check_first_k = 5;
+	dl_se->pin_page_list_file.check_n       = 3;
+	dl_se->pin_page_list_file.push_able = 0;
+	INIT_LIST_HEAD(&dl_se->pin_page_list_file.pin_page_chunk_head);
 
 	dl_se->dl_runtime = attr->sched_runtime;
 	dl_se->dl_deadline = attr->sched_deadline;

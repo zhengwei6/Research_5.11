@@ -1234,6 +1234,18 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 		}
 		*/
 		/*
+		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN) {
+			if (PageAnon(page) && PageSwapBacked(page)) {
+        		struct anon_vma *anon_vma = page_anon_vma(page);
+        		if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_list != NULL) {
+					references = PAGEREF_ACTIVATE;	
+				}
+			}
+			if (is_real_time_file_page(page)) {
+				references = PAGEREF_ACTIVATE;
+			}
+		}*/
+		/*
 		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN || references == PAGEREF_ACTIVATE) {
 			if (PageAnon(page) && PageSwapBacked(page)) {
 				struct anon_vma *anon_vma;
@@ -2151,9 +2163,13 @@ bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_hea
 		while (!list_empty(&victim_chunk->pin_page_list_head) && (i < pin_page_control->check_first_k)) {
 			int referenced_ptes, referenced_page;
 			unsigned long vm_flags;
+			ktime_t ktime;
 			page = lru_to_page(&victim_chunk->pin_page_list_head);
 			list_del(&page->lru);
+			ktime = ktime_get();
 			referenced_ptes = page_referenced(page, 1, pin_page_control->mem_cgroup, &vm_flags);
+			ktime = ktime_sub(ktime_get(), ktime);
+			printk("%lld ns\n", ktime);
 			referenced_page = TestClearPageReferenced(page);
 			if (referenced_ptes || referenced_page)
 				count += 1;
@@ -2176,10 +2192,6 @@ bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_hea
 		else {
 			victim_chunk = list_entry(victim_chunk->pin_page_chunk_head.next, struct pin_page_chunk, pin_page_chunk_head);
 		}
-		if (victim_chunk == pin_page_control->victim_chunk) return false;
-	}
-
-	while (!list_empty(&victim_chunk->pin_page_list_head)) {
 		page = lru_to_page(&victim_chunk->pin_page_list_head);
 		pin_page_control->cur_pin_pages -= 1;
 		list_del(&page->lru);
@@ -2200,6 +2212,37 @@ bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_hea
 		pin_page_control->victim_chunk = NULL;
 	}
 	return true;
+}
+
+static struct pin_page_control *is_real_time_file_page(struct page *page, 
+		struct lruvec *lruvec, struct mem_cgroup *mem_cgroup) {
+    struct address_space *mapping = page_mapping(page);
+    struct vm_area_struct *vma;
+    pgoff_t pgoff_start, pgoff_end;
+    if (!mapping || !page_is_file_lru(page) || mapping->is_real_time == -1)
+        return NULL;
+    if (mapping->is_real_time == 1 && mapping->pin_page_list != NULL) return mapping->pin_page_list;
+
+    pgoff_start = page_to_pgoff(page);
+    pgoff_end   = pgoff_start + thp_nr_pages(page) - 1; 
+    i_mmap_lock_read(mapping);
+    vma_interval_tree_foreach(vma, &mapping->i_mmap,
+            pgoff_start, pgoff_end) {
+        if (vma != NULL && vma->vm_mm != NULL && vma->vm_mm->owner != NULL 
+                && vma->vm_mm->owner->dl.dl_runtime > 0) {
+						mapping->is_real_time = 1;
+						if (mapping->pin_page_list == NULL) {
+								mapping->pin_page_list = &vma->vm_mm->owner->dl.pin_page_list_file;
+								mapping->pin_page_list->lruvec = lruvec;
+								mapping->pin_page_list->mem_cgroup = mem_cgroup;
+						}
+            i_mmap_unlock_read(mapping);
+            return mapping->pin_page_list;
+        }
+    }    
+    i_mmap_unlock_read(mapping);
+	mapping->is_real_time = -1;
+    return NULL;
 }
 
 /*
@@ -2293,6 +2336,7 @@ static void shrink_active_list(unsigned long nr_to_scan,
 					 * if the cur_count is larget than 32 and it also has more than one chunks.
 					 */
 					if (anon_vma->pin_page_list->push_able == 0) {
+						/*
 						struct list_head *pin_page_chunk_head = &anon_vma->pin_page_list->pin_page_chunk_head;
 						anon_vma->pin_page_list->cur_count += 1;
 						printk("del_victim_chunk \n");
@@ -2303,19 +2347,30 @@ static void shrink_active_list(unsigned long nr_to_scan,
 								printk("del_victim_chunk sucess \n");
 							}
 							spin_unlock_irq(&anon_vma->pin_page_list->pin_page_lock);
-						}
+						}*/
 					}
 					else {
 						ClearPageActive(page);
-						printk("insert_page_to_control \n");
 						spin_lock_irq(&anon_vma->pin_page_list->pin_page_lock);
 						if (insert_page_to_control(anon_vma->pin_page_list, page)) {
-							printk("insert_page_to_control sucess \n");
 							spin_unlock_irq(&anon_vma->pin_page_list->pin_page_lock);
 							continue;
 						}
 						spin_unlock_irq(&anon_vma->pin_page_list->pin_page_lock);
 					}
+				}
+			}
+
+			if (page_is_file_lru(page)) {
+				struct pin_page_control *pin_page_control = is_real_time_file_page(page, lruvec, sc->target_mem_cgroup);
+				if (pin_page_control != NULL && pin_page_control->push_able == 1) {
+					ClearPageActive(page);
+					spin_lock_irq(&pin_page_control->pin_page_lock);
+					if (insert_page_to_control(pin_page_control, page)) {
+						spin_unlock_irq(&pin_page_control->pin_page_lock);	
+						continue;
+					}
+					spin_unlock_irq(&pin_page_control->pin_page_lock);
 				}
 			}
 
@@ -4509,6 +4564,9 @@ int node_reclaim(struct pglist_data *pgdat, gfp_t gfp_mask, unsigned int order)
 /**
  * check_move_unevictable_pages - check pages for evictability and move to
  * appropriate zone lru list
+ * @pvec: pagevec with lru pages to check
+ *
+ * Checks pages for evictability, if an evictable page is in the unevictable
  * @pvec: pagevec with lru pages to check
  *
  * Checks pages for evictability, if an evictable page is in the unevictable
