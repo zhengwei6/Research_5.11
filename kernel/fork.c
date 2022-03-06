@@ -1336,7 +1336,10 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 		/* anon */
 		lruvec = mm->owner->dl.pin_page_list_anon.lruvec;
 		pin_page_chunk_head = &mm->owner->dl.pin_page_list_anon.pin_page_chunk_head;
+		if (lruvec == NULL || pin_page_chunk_head == NULL) goto skip;
 		spin_lock_irq(&lruvec->lru_lock);
+		spin_lock_irq(&mm->owner->dl.pin_page_list_anon.pin_page_lock);
+		printk("anon start\n");
 		while (lruvec != NULL && !list_empty(pin_page_chunk_head)) {
 			pin_page_chunk_entry = list_entry(pin_page_chunk_head->next, struct pin_page_chunk, pin_page_chunk_head);
 			list_del(&pin_page_chunk_entry->pin_page_chunk_head);
@@ -1355,6 +1358,7 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 			}
 			kfree(pin_page_chunk_entry);
 		}
+		spin_unlock_irq(&mm->owner->dl.pin_page_list_anon.pin_page_lock);
 		spin_unlock_irq(&lruvec->lru_lock);
 		printk("anon move %d\n", nr_moved);
 		nr_moved = 0;
@@ -1370,9 +1374,10 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
             vma = vma->vm_next;
         }
 		/* file */
-		lruvec = mm->owner->dl.pin_page_list_file.lruvec;
-		pin_page_chunk_head = &mm->owner->dl.pin_page_list_anon.pin_page_chunk_head;
+		pin_page_chunk_head = &mm->owner->dl.pin_page_list_file.pin_page_chunk_head;
 		spin_lock_irq(&lruvec->lru_lock);
+		spin_lock_irq(&mm->owner->dl.pin_page_list_file.pin_page_lock);
+		printk("file start\n");
 		while (lruvec != NULL && !list_empty(pin_page_chunk_head)) {
             pin_page_chunk_entry = list_entry(pin_page_chunk_head->next, struct pin_page_chunk, pin_page_chunk_head);
             list_del(&pin_page_chunk_entry->pin_page_chunk_head);
@@ -1391,9 +1396,11 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
             }
             kfree(pin_page_chunk_entry);
         }
+		spin_unlock_irq(&mm->owner->dl.pin_page_list_file.pin_page_lock);
         spin_unlock_irq(&lruvec->lru_lock);
         printk("file move %d\n", nr_moved);
 	}
+skip:
 	futex_exit_release(tsk);
 	mm_release(tsk, mm);
 }

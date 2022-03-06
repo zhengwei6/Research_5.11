@@ -2794,6 +2794,19 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 			cur = cur->vm_next;
 		}
 	}
+	
+	if (real_time_mm != NULL) {
+		struct vm_area_struct *cur = real_time_mm->mmap;
+		while (cur != NULL) {
+			struct file *vm_file = cur->vm_file;
+			if (vm_file != NULL && vm_file->f_inode != NULL && vm_file->f_inode->i_mapping != NULL) {
+				vm_file->f_inode->i_mapping->is_real_time = 1;
+				vm_file->f_inode->i_mapping->pin_page_list = &dl_se->pin_page_list_file;
+				printk("123456\n");
+			}
+			cur = cur->vm_next;
+		}
+	}
 
 	p->mm->is_real_time = 1;
 
