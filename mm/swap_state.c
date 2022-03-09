@@ -456,6 +456,7 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 	struct swap_info_struct *si;
 	struct page *page;
 	void *shadow = NULL;
+	ktime_t ktime;
 
 	*new_page_allocated = false;
 
@@ -491,7 +492,10 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 		 * before marking swap_map SWAP_HAS_CACHE, when -EEXIST will
 		 * cause any racers to loop around until we add it to cache.
 		 */
+		ktime = ktime_get();
 		page = alloc_page_vma(gfp_mask, vma, addr);
+		ktime = ktime_sub(ktime_get(), ktime);
+		printk("alloc_page_vma %lld ns\n", ktime);
 		if (!page)
 			return NULL;
 
@@ -522,13 +526,14 @@ struct page *__read_swap_cache_async(swp_entry_t entry, gfp_t gfp_mask,
 
 	__SetPageLocked(page);
 	__SetPageSwapBacked(page);
-
+	ktime = ktime_get();
 	/* May fail (-ENOMEM) if XArray node allocation failed. */
 	if (add_to_swap_cache(page, entry, gfp_mask & GFP_RECLAIM_MASK, &shadow)) {
 		put_swap_page(page, entry);
 		goto fail_unlock;
 	}
-
+	ktime = ktime_sub(ktime_get(), ktime);
+	printk("add_to_swap_cache %lld ns\n", ktime);
 	if (mem_cgroup_charge(page, NULL, gfp_mask)) {
 		delete_from_swap_cache(page);
 		goto fail_unlock;
@@ -842,7 +847,7 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 	struct vma_swap_readahead ra_info = {
 		.win = 1,
 	};
-
+	ktime_t ktime;
 	swap_ra_info(vmf, &ra_info);
 	if (ra_info.win == 1)
 		goto skip;
@@ -863,7 +868,10 @@ static struct page *swap_vma_readahead(swp_entry_t fentry, gfp_t gfp_mask,
 		if (!page)
 			continue;
 		if (page_allocated) {
+			ktime = ktime_get();
 			swap_readpage(page, false);
+			ktime = ktime_sub(ktime_get(), ktime);
+			printk("swap_readpage %lld ns\n", ktime);
 			if (i != ra_info.offset) {
 				SetPageReadahead(page);
 				count_vm_event(SWAP_RA);
