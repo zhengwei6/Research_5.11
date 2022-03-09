@@ -3271,7 +3271,6 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	int exclusive = 0;
 	vm_fault_t ret = 0;
 	void *shadow = NULL;
-	ktime_t ktime;
 
 	if (!pte_unmap_same(vma->vm_mm, vmf->pmd, vmf->pte, vmf->orig_pte))
 		goto out;
@@ -3295,10 +3294,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 
 
 	delayacct_set_flag(DELAYACCT_PF_SWAPIN);
-	ktime = ktime_get();
 	page = lookup_swap_cache(entry, vma, vmf->address);
-	ktime = ktime_sub(ktime_get(), ktime);
-	printk("lookup_swap_cache %lld ns\n", ktime);
 	swapcache = page;
 	#ifdef DEBUG_SWAP
 		trace_printk("do_swap_page entry\n");
