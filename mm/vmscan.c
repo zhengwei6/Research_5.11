@@ -2053,7 +2053,6 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	if (nr_taken == 0)
 		return 0;
 	nr_reclaimed = shrink_page_list(&page_list, pgdat, sc, &stat, false);
-	//printk("%lu %u\n", nr_taken, nr_reclaimed, ktime);
 	
 	spin_lock_irq(&lruvec->lru_lock);
 	move_pages_to_lru(lruvec, &page_list);
@@ -2183,13 +2182,9 @@ bool del_victim_chunk(struct pin_page_control *pin_page_control, struct list_hea
 		while (!list_empty(&victim_chunk->pin_page_list_head) && (i < pin_page_control->check_first_k)) {
 			int referenced_ptes, referenced_page;
 			unsigned long vm_flags;
-			ktime_t ktime;
 			page = lru_to_page(&victim_chunk->pin_page_list_head);
 			list_del(&page->lru);
-			ktime = ktime_get();
 			referenced_ptes = page_referenced(page, 1, pin_page_control->mem_cgroup, &vm_flags);
-			ktime = ktime_sub(ktime_get(), ktime);
-			printk("%lld ns\n", ktime);
 			referenced_page = TestClearPageReferenced(page);
 			if (referenced_ptes || referenced_page)
 				count += 1;
@@ -2365,7 +2360,7 @@ static void shrink_active_list(unsigned long nr_to_scan,
                 	spin_lock_irq(&pin_page_control->pin_page_lock);
                 	if (insert_page_to_control(pin_page_control, page)) {
                     	spin_unlock_irq(&pin_page_control->pin_page_lock);
-                    	printk("cur_pin_pages : %d\n", pin_page_control->cur_pin_pages);
+                    	printk("cur_pin_pages : %d ns\n", pin_page_control->cur_pin_pages);
                     	continue;
                 	}
                 	spin_unlock_irq(&pin_page_control->pin_page_lock);

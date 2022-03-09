@@ -516,16 +516,20 @@ struct pin_page_chunk {
 };
 
 struct pin_page_control {
-	/* it connects all the chunks. */
-	struct list_head pin_page_chunk_head;
+	/* pin_page_active_list */
+	struct list_head pin_page_active_list;
+	/* pin_page_inactive_list */
+	struct list_head pin_page_inactive_list;
+	/* buffer of pin pages */
+	struct list_head pin_page_buffer;
+	/* division value */
+	int division_value;
 	/* all the pages are in the same lruvec. */
 	struct lruvec *lruvec;
 	/* all the pages are in the same mem_cgroup. */
 	struct mem_cgroup *mem_cgroup;
-	/* find the victim chunk from there. */
-	struct pin_page_chunk *victim_chunk;
 	/* count for the cold chunk to be swapped out. */
-	int cur_count;
+	int buffer_count;
 	/* count for how many pages are pinned currently. */
 	int cur_pin_pages;
 	/* throttle the maximum pin pages. */
@@ -609,8 +613,8 @@ struct sched_dl_entity {
 	 * time.
 	 */
 	struct hrtimer inactive_timer;
-	struct pin_page_control pin_page_list_anon;
-	struct pin_page_control pin_page_list_file;
+	struct pin_page_control pin_page_control_anon;
+	struct pin_page_control pin_page_control_file;
 #ifdef CONFIG_RT_MUTEXES
 	/*
 	 * Priority Inheritance. When a DEADLINE scheduling entity is boosted

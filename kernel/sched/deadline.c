@@ -2788,7 +2788,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 				struct anon_vma_chain *avc = list_entry(anon_vma_chain_head, struct anon_vma_chain, same_vma);
 				if (avc != NULL) {
 					avc->anon_vma->is_real_time = 1;
-					avc->anon_vma->pin_page_list = &dl_se->pin_page_list_anon;
+					avc->anon_vma->pin_page_control = &dl_se->pin_page_control_anon;
 				}
 			}
 			cur = cur->vm_next;
@@ -2801,34 +2801,38 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 			struct file *vm_file = cur->vm_file;
 			if (vm_file != NULL && vm_file->f_inode != NULL && vm_file->f_inode->i_mapping != NULL) {
 				vm_file->f_inode->i_mapping->is_real_time = 1;
-				vm_file->f_inode->i_mapping->pin_page_list = &dl_se->pin_page_list_file;
-				printk("123456\n");
+				vm_file->f_inode->i_mapping->pin_page_control = &dl_se->pin_page_control_file;
 			}
 			cur = cur->vm_next;
 		}
 	}
 
 	p->mm->is_real_time = 1;
-
+	
 	/* anon */
-	dl_se->pin_page_list_anon.cur_count = 0;
-	dl_se->pin_page_list_anon.cur_pin_pages = 0;
-	dl_se->pin_page_list_anon.max_pin_pages = 100000;
-	dl_se->pin_page_list_anon.max_page_per_chunk = 32;
-	dl_se->pin_page_list_anon.check_first_k = 5;
-	dl_se->pin_page_list_anon.check_n       = 3;
-	dl_se->pin_page_list_anon.push_able = 0;
-	INIT_LIST_HEAD(&dl_se->pin_page_list_anon.pin_page_chunk_head);
+	dl_se->pin_page_control_anon.buffer_count = 0;
+    dl_se->pin_page_control_anon.cur_pin_pages = 0;
+    dl_se->pin_page_control_anon.max_pin_pages = 3000;
+	dl_se->pin_page_control_anon.max_page_per_chunk = 32;
+    dl_se->pin_page_control_anon.check_first_k = 5;
+    dl_se->pin_page_control_anon.check_n       = 3;
+    dl_se->pin_page_control_anon.push_able    = 0;
+
+    INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_active_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_inactive_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_buffer);	
 	
 	/* file */
-	dl_se->pin_page_list_file.cur_count = 0;
-	dl_se->pin_page_list_file.cur_pin_pages = 0;
-	dl_se->pin_page_list_file.max_pin_pages = 100000;
-	dl_se->pin_page_list_file.max_page_per_chunk = 32;
-	dl_se->pin_page_list_file.check_first_k = 5;
-	dl_se->pin_page_list_file.check_n       = 3;
-	dl_se->pin_page_list_file.push_able = 0;
-	INIT_LIST_HEAD(&dl_se->pin_page_list_file.pin_page_chunk_head);
+	dl_se->pin_page_control_file.buffer_count = 0;
+    dl_se->pin_page_control_file.cur_pin_pages = 0;
+    dl_se->pin_page_control_file.max_pin_pages = 3000;
+	dl_se->pin_page_control_file.max_page_per_chunk = 32;
+    dl_se->pin_page_control_file.check_first_k = 5;
+    dl_se->pin_page_control_file.check_n       = 3;
+    dl_se->pin_page_control_file.push_able    = 0;
+    INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_active_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_inactive_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_buffer);
 
 	dl_se->dl_runtime = attr->sched_runtime;
 	dl_se->dl_deadline = attr->sched_deadline;
