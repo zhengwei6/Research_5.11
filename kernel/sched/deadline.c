@@ -17,6 +17,7 @@
  */
 #include "sched.h"
 #include "pelt.h"
+#include <linux/rmap.h>
 
 struct dl_bandwidth def_dl_bandwidth;
 
@@ -1636,7 +1637,8 @@ static void enqueue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 
 		return;
 	}
-
+	p->dl.pin_page_control_anon.enqueued = 1;
+	p->dl.pin_page_control_file.enqueued = 1;
 	enqueue_dl_entity(&p->dl, flags);
 
 	if (!task_current(rq, p) && p->nr_cpus_allowed > 1)
@@ -1652,6 +1654,8 @@ static void __dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 static void dequeue_task_dl(struct rq *rq, struct task_struct *p, int flags)
 {
 	update_curr_dl(rq);
+	p->dl.pin_page_control_anon.enqueued = 0;
+	p->dl.pin_page_control_file.enqueued = 0;
 	__dequeue_task_dl(rq, p, flags);
 
 	if (p->on_rq == TASK_ON_RQ_MIGRATING || flags & DEQUEUE_SAVE) {
@@ -2759,6 +2763,64 @@ int sched_dl_overflow(struct task_struct *p, int policy,
 void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 {
 	struct sched_dl_entity *dl_se = &p->dl;
+	struct mm_struct *real_time_mm = p->mm;
+    
+	if (real_time_mm != NULL) {
+        struct vm_area_struct *cur = real_time_mm->mmap;
+        while (cur != NULL) {
+            struct list_head *anon_vma_chain_head;
+            list_for_each(anon_vma_chain_head, &cur->anon_vma_chain) {
+                struct anon_vma_chain *avc = list_entry(anon_vma_chain_head, struct anon_vma_chain, same_vma);
+                if (avc != NULL) {
+                    avc->anon_vma->is_real_time = 1;
+                    avc->anon_vma->pin_page_control = &dl_se->pin_page_control_anon;
+                }
+            }
+            cur = cur->vm_next;
+        }
+    }
+
+
+	if (real_time_mm != NULL) {
+        struct vm_area_struct *cur = real_time_mm->mmap;
+        while (cur != NULL) {
+            struct file *vm_file = cur->vm_file;
+            if (vm_file != NULL && vm_file->f_inode != NULL && vm_file->f_inode->i_mapping != NULL) {
+                vm_file->f_inode->i_mapping->is_real_time = 1;
+                vm_file->f_inode->i_mapping->pin_page_control = &dl_se->pin_page_control_file;
+            }
+            cur = cur->vm_next;
+        }
+    }
+	
+    p->mm->is_real_time = 1;
+	
+	dl_se->pin_page_control_anon.buffer_count = 0;
+    dl_se->pin_page_control_anon.cur_pin_active_chunks = 0;
+	dl_se->pin_page_control_anon.cur_pin_inactive_chunks = 0;
+    dl_se->pin_page_control_anon.max_pin_chunks = 100;
+	dl_se->pin_page_control_anon.max_page_per_chunk = 32;
+    dl_se->pin_page_control_anon.check_first_k = 5;
+    dl_se->pin_page_control_anon.check_n       = 3;
+    dl_se->pin_page_control_anon.enqueued    = 1;
+	dl_se->pin_page_control_anon.chunk_division = 8;
+    INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_active_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_inactive_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_buffer);
+
+	/* file */
+	dl_se->pin_page_control_file.buffer_count = 0;
+    dl_se->pin_page_control_file.cur_pin_active_chunks = 0;
+	dl_se->pin_page_control_file.cur_pin_inactive_chunks = 0;
+    dl_se->pin_page_control_file.max_pin_chunks = 20;
+	dl_se->pin_page_control_file.max_page_per_chunk = 32;
+    dl_se->pin_page_control_file.check_first_k = 5;
+    dl_se->pin_page_control_file.check_n       = 3;
+    dl_se->pin_page_control_file.enqueued    = 1;
+	dl_se->pin_page_control_file.chunk_division = 8;
+    INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_active_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_inactive_list);
+	INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_buffer);
 
 	dl_se->dl_runtime = attr->sched_runtime;
 	dl_se->dl_deadline = attr->sched_deadline;

@@ -60,7 +60,9 @@ struct anon_vma {
 
 	/* Interval tree of private "related" vmas */
 	struct rb_root_cached rb_root;
-	struct rb_root refault_rb_root;	
+	struct rb_root refault_rb_root;
+	bool is_real_time;
+	struct pin_page_control *pin_page_control;
 };
 
 struct refault_anon_shadow {

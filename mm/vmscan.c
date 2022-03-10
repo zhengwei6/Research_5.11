@@ -131,6 +131,7 @@ struct scan_control {
 	gfp_t gfp_mask;
 
 	/* Incremented by the number of inactive pages that were scanned */
+	/* Incremented by the number of inactive pages that were scanned */
 	unsigned long nr_scanned;
 
 	/* Number of pages freed so far during a call to shrink_zones() */
@@ -1220,39 +1221,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		if (!ignore_references)
 			references = page_check_references(page, sc);
-		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN) {
-			if (PageAnon(page)) {
-				struct anon_vma *anon_vma;
-				pgoff_t pgoff_start, pgoff_end;
-				struct anon_vma_chain *avc;
-				struct rb_root *root;
-				struct refault_anon_shadow *refault_anon_shadow;
-				anon_vma = page_anon_vma(page);
-				if (anon_vma != NULL) {
-					root = &(anon_vma->refault_rb_root);
-					refault_anon_shadow = search_anon_shadow(root, page->index);
-					if (refault_anon_shadow == NULL) goto skip;
-					pgoff_start = page_to_pgoff(page);
-					pgoff_end   = pgoff_start + thp_nr_pages(page) - 1;
-					anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
-							pgoff_start, pgoff_end) {
-						struct vm_area_struct *vma = avc->vma;
-						struct anon_vma *anon_vma_sub = avc->anon_vma;
-						if (vma->vm_mm != NULL && anon_vma_sub != NULL && vma->vm_mm->owner->dl.dl_runtime > 0 && vma->vm_mm->owner->dl.dl_thrashing == 1) {
-							struct rb_root *root = &(anon_vma_sub->refault_rb_root);
-							refault_anon_shadow = search_anon_shadow(root, page->index);
-							if (refault_anon_shadow != NULL && references != PAGEREF_ACTIVATE) {
-								if (refault_anon_shadow->refault_count > 0) {
-									refault_anon_shadow->refault_count = refault_anon_shadow->refault_count - 1;
-									references = PAGEREF_KEEP;
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-skip:
+		
 		switch (references) {
 		case PAGEREF_ACTIVATE:
 			goto activate_locked;
@@ -2035,6 +2004,169 @@ shrink_inactive_list(unsigned long nr_to_scan, struct lruvec *lruvec,
 	return nr_reclaimed;
 }
 
+static int check_chunks_reference(struct pin_page_chunk *check_chunk, struct mem_cgroup *mem_cgroup, int k, int n)
+{
+	struct list_head *cur_page_head;
+	int count = 0;
+	struct page *page;
+	if (check_chunk == NULL || mem_cgroup == NULL || list_empty(&check_chunk->pin_page_list_head)) return 0;
+
+	for (cur_page_head = check_chunk->pin_page_list_head.next;
+		cur_page_head != (&check_chunk->pin_page_list_head); 
+		cur_page_head = cur_page_head->next) {
+		int referenced_ptes, referenced_page;
+		unsigned long vm_flags;
+		if (k == 0) break;
+		page = list_entry(cur_page_head, struct page, lru);
+		
+		referenced_ptes = page_referenced(page, 1, mem_cgroup, &vm_flags);
+		referenced_page = TestClearPageReferenced(page);
+		
+		if (referenced_ptes == 0) count += 1;
+		k -= 1;
+	}
+	if (count >= n) return 0;
+	return 1; 
+}
+
+void evict_one_chunk(struct pin_page_chunk *evict_chunk, 
+		struct list_head *insert_list)
+{
+    struct list_head *pin_page_list_head;
+	if (evict_chunk == NULL) return;
+	pin_page_list_head = &evict_chunk->pin_page_list_head;
+	if (!list_empty(pin_page_list_head)) {
+		list_splice(pin_page_list_head, insert_list);
+	}
+	kfree(evict_chunk);
+}
+
+void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_head *insert_list)
+{
+	int num_scan_chunk;
+	LIST_HEAD(l_hold);
+	struct list_head *cur_chunk_head;
+	struct pin_page_chunk *cur_chunk;
+	bool find_victim = 0;
+	int cur_pin_chunks;
+
+	if (pin_page_control == NULL || insert_list == NULL)
+		return;
+	if (list_empty(&pin_page_control->pin_page_inactive_list)) return;
+
+	cur_pin_chunks = pin_page_control->cur_pin_inactive_chunks;
+	/* calculate how many chunks we need to scan.*/
+	num_scan_chunk = cur_pin_chunks / pin_page_control->chunk_division * pin_page_control->chunk_division;
+	if (num_scan_chunk == 0) num_scan_chunk = cur_pin_chunks;
+	
+	/* iterate from cur_chunk_head to the end */
+	for (cur_chunk_head = pin_page_control->pin_page_inactive_list.next; cur_chunk_head != (&(pin_page_control->pin_page_inactive_list));) {	
+		if (num_scan_chunk == 0) break;
+		cur_chunk = list_entry(cur_chunk_head, struct pin_page_chunk, pin_page_chunk_head);
+		/* set the cur_chunk_head to next entry */
+		cur_chunk_head = cur_chunk_head->next;
+		list_del(&cur_chunk->pin_page_chunk_head);
+		switch (check_chunks_reference(cur_chunk, pin_page_control->mem_cgroup, pin_page_control->check_first_k, pin_page_control->check_n)) {
+			case 0 :
+				/* evict */
+				evict_one_chunk(cur_chunk, insert_list);
+				pin_page_control->cur_pin_inactive_chunks -= 1;
+       	 		find_victim = 1;
+				break;
+			default:
+				list_add_tail(&cur_chunk->pin_page_chunk_head, &pin_page_control->pin_page_active_list);
+				pin_page_control->cur_pin_inactive_chunks -= 1;
+				pin_page_control->cur_pin_active_chunks += 1; 
+		}
+		num_scan_chunk -= 1;
+	}
+
+	/* we will select the next entry as victim chunk if we don't find the victim chunk */
+	if (find_victim == 0 && !list_empty(&pin_page_control->pin_page_inactive_list)) {
+    	cur_chunk = list_entry(pin_page_control->pin_page_inactive_list.next, struct pin_page_chunk, pin_page_chunk_head);
+		list_del(&cur_chunk->pin_page_chunk_head);
+		evict_one_chunk(cur_chunk, insert_list);
+    	pin_page_control->cur_pin_inactive_chunks -= 1;
+  	}
+	return;
+}
+
+void insert_page_to_control(struct pin_page_control *pin_page_control, struct page *page) {
+	/* 
+	 * Insert to the buffer and insert it to the list if the buffer is full.
+	 */
+	struct list_head *pin_page_buffer = &pin_page_control->pin_page_buffer;
+	if (pin_page_control == NULL || page == NULL || pin_page_buffer == NULL) return;
+	list_add(&page->lru, pin_page_buffer);
+	pin_page_control->buffer_count += 1;
+
+	/* if buffer count == max */
+	if (pin_page_control->buffer_count == pin_page_control->max_page_per_chunk) {
+		struct pin_page_chunk *pin_page_chunk = (struct pin_page_chunk *)kmalloc(sizeof(struct pin_page_chunk), GFP_KERNEL);
+		INIT_LIST_HEAD(&pin_page_chunk->pin_page_list_head);
+		INIT_LIST_HEAD(&pin_page_chunk->pin_page_chunk_head);
+		list_splice(pin_page_buffer, &pin_page_chunk->pin_page_list_head);
+		INIT_LIST_HEAD(pin_page_buffer);
+    	list_add_tail(&pin_page_chunk->pin_page_chunk_head, &pin_page_control->pin_page_inactive_list);
+   		pin_page_control->cur_pin_inactive_chunks += 1;
+		pin_page_control->buffer_count = 0;
+	}
+  	return;
+}
+
+void balance(struct pin_page_control *pin_page_control)
+{
+    /*
+	 * Make the ratio of inactive list and active list be 1 : 3.
+     */
+	int cur_pin_chunks;
+    int next_pin_active_chunks;
+    int next_pin_inactive_chunks;
+    LIST_HEAD(tmp);
+	if (pin_page_control == NULL) return;
+    cur_pin_chunks = pin_page_control->cur_pin_inactive_chunks + pin_page_control->cur_pin_active_chunks;
+    next_pin_inactive_chunks = cur_pin_chunks / 4;
+    next_pin_active_chunks = cur_pin_chunks - next_pin_inactive_chunks;
+
+	if (next_pin_inactive_chunks < pin_page_control->cur_pin_inactive_chunks) {
+        /* Insert the chunks from inactive list to active list. */
+		struct list_head *cur = pin_page_control->pin_page_inactive_list.next;
+        int diff = pin_page_control->cur_pin_inactive_chunks - next_pin_inactive_chunks;
+		diff -= 1;
+		while (diff != 0) {
+			cur = cur->next;
+			diff -= 1;
+		}
+		list_cut_position(&tmp, &pin_page_control->pin_page_inactive_list, cur);
+		list_splice_tail(&tmp, &pin_page_control->pin_page_active_list);
+    } else if (next_pin_inactive_chunks > pin_page_control->cur_pin_inactive_chunks) {
+        /* Insert the chunks from active list to inactive list. */
+		struct list_head *cur = pin_page_control->pin_page_active_list.next;
+		int diff = pin_page_control->cur_pin_active_chunks - next_pin_active_chunks;
+		diff -= 1;
+		while (diff != 0) {
+            cur = cur->next;
+            diff -= 1;
+        }
+        list_cut_position(&tmp, &pin_page_control->pin_page_active_list, cur);
+        list_splice_tail(&tmp, &pin_page_control->pin_page_inactive_list);
+    }
+
+	/* Update the number of pin_page_inactive_chunks and pin_page_active_list. */
+	pin_page_control->cur_pin_active_chunks = next_pin_active_chunks;
+	pin_page_control->cur_pin_inactive_chunks = next_pin_inactive_chunks;
+    return;
+}
+
+struct pin_page_control *is_real_time_file_page(struct page *page) {
+    struct address_space *mapping = page_mapping(page);
+    if (!mapping || !page_is_file_lru(page) || mapping->is_real_time == -1)
+        return NULL;
+    if (mapping->is_real_time == 1 && mapping->pin_page_control != NULL) return mapping->pin_page_control;	
+	return NULL;
+}
+
+
 /*
  * shrink_active_list() moves pages from the active LRU to the inactive LRU.
  *
@@ -2113,6 +2245,47 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			 * IO, plus JVM can create lots of anon VM_EXEC pages,
 			 * so we ignore them here.
 			 */
+			if (PageAnon(page) && PageSwapBacked(page)) {
+				struct anon_vma *anon_vma = page_anon_vma(page);
+				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_control != NULL) {
+					int cur_pin_chunks = anon_vma->pin_page_control->cur_pin_active_chunks + anon_vma->pin_page_control->cur_pin_inactive_chunks;
+					if (anon_vma->pin_page_control->lruvec == NULL) {
+						spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+						anon_vma->pin_page_control->lruvec = lruvec;
+						anon_vma->pin_page_control->mem_cgroup = sc->target_mem_cgroup;
+						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
+					}
+					if (anon_vma->pin_page_control->enqueued == 1) {
+						if (cur_pin_chunks >= anon_vma->pin_page_control->max_pin_chunks) {
+							spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+							del_victim_chunks(anon_vma->pin_page_control, &l_active);
+							balance(anon_vma->pin_page_control);
+							spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
+						}
+						ClearPageActive(page);
+						spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+						insert_page_to_control(anon_vma->pin_page_control, page);
+						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
+						continue;
+					} else if (cur_pin_chunks < anon_vma->pin_page_control->max_pin_chunks) {
+						ClearPageActive(page);
+						spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+						insert_page_to_control(anon_vma->pin_page_control, page);
+						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
+						continue;
+					}
+				}
+			}
+			if (page_is_file_lru(page)) {
+				struct pin_page_control *pin_page_control = is_real_time_file_page(page);
+				if (pin_page_control != NULL) {
+					ClearPageActive(page);
+					spin_lock_irq(&pin_page_control->pin_page_lock);
+					insert_page_to_control(pin_page_control, page);
+					spin_unlock_irq(&pin_page_control->pin_page_lock);
+					continue;
+				}
+			}
 			if ((vm_flags & VM_EXEC) && page_is_file_lru(page)) {
 				nr_rotated += thp_nr_pages(page);
 				list_add(&page->lru, &l_active);

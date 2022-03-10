@@ -467,6 +467,8 @@ struct address_space {
 	errseq_t		wb_err;
 	spinlock_t		private_lock;
 	struct list_head	private_list;
+	int            is_real_time;
+	struct pin_page_control *pin_page_control;
 	void			*private_data;
 } __attribute__((aligned(sizeof(long)))) __randomize_layout;
 	/*

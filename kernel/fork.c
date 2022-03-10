@@ -96,6 +96,7 @@
 #include <linux/kasan.h>
 #include <linux/scs.h>
 #include <linux/io_uring.h>
+#include <linux/mm_inline.h>
 
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
@@ -1320,8 +1321,113 @@ static void mm_release(struct task_struct *tsk, struct mm_struct *mm)
 		complete_vfork_done(tsk);
 }
 
+static int release_pin_page_chunk_list(struct pin_page_control *pin_page_control, struct list_head *pin_page_chunk_head, struct lruvec *lruvec)
+{
+	struct pin_page_chunk *pin_page_chunk_entry;
+	struct list_head *list;
+	int nr_pages, nr_moved = 0; 
+	struct page *page;
+	enum lru_list lru;
+
+	if (lruvec == NULL || pin_page_chunk_head == NULL || pin_page_control == NULL) return 0;
+	
+	spin_lock_irq(&lruvec->lru_lock);
+	spin_lock(&pin_page_control->pin_page_lock);
+	while (lruvec != NULL && !list_empty(pin_page_chunk_head)) {
+		pin_page_chunk_entry = list_entry(pin_page_chunk_head->next, struct pin_page_chunk, pin_page_chunk_head);
+		list_del(&pin_page_chunk_entry->pin_page_chunk_head);
+		list = &pin_page_chunk_entry->pin_page_list_head;
+		while (lruvec != NULL && !list_empty(list)) {
+			page = lru_to_page(list);
+			if (page == NULL) break;
+			list_del(&page->lru);
+			SetPageLRU(page);
+			if (unlikely(put_page_testzero(page))) {}
+			lru = page_lru(page);
+			nr_pages = thp_nr_pages(page);
+			update_lru_size(lruvec, lru, page_zonenum(page), nr_pages);
+			list_add(&page->lru, &lruvec->lists[lru]);
+			nr_moved += nr_pages;
+		}
+		kfree(pin_page_chunk_entry);
+	}
+	spin_unlock(&pin_page_control->pin_page_lock);
+	spin_unlock_irq(&lruvec->lru_lock);
+	return nr_moved;
+}
+
+int release_pin_page_buffer(struct pin_page_control *pin_page_control, struct lruvec *lruvec)
+{
+	struct list_head *buffer_head = &pin_page_control->pin_page_buffer;
+	int nr_pages, nr_moved = 0;
+	struct page *page;
+	enum lru_list lru;
+
+	spin_lock_irq(&lruvec->lru_lock);
+	spin_lock(&pin_page_control->pin_page_lock);
+
+	while (lruvec != NULL && !list_empty(buffer_head)) {
+		page = lru_to_page(buffer_head);
+		list_del(&page->lru);
+		SetPageLRU(page);
+		if (unlikely(put_page_testzero(page))) {}
+		lru = page_lru(page);
+		nr_pages = thp_nr_pages(page);
+		update_lru_size(lruvec, lru, page_zonenum(page), nr_pages);
+		list_add(&page->lru, &lruvec->lists[lru]);
+		nr_moved += nr_pages;
+	}
+
+	spin_unlock(&pin_page_control->pin_page_lock);
+	spin_unlock_irq(&lruvec->lru_lock);
+	return nr_moved;
+}
+
 void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 {
+	if (mm != NULL && mm->owner != NULL && mm->is_real_time == 1) {
+		struct vm_area_struct *vma = mm->mmap;
+        int nr_moved = 0;
+		
+		printk("release anon pin page active list\n");
+		nr_moved = release_pin_page_chunk_list(&mm->owner->dl.pin_page_control_anon,
+					&mm->owner->dl.pin_page_control_anon.pin_page_active_list,
+					mm->owner->dl.pin_page_control_anon.lruvec);
+		printk("remove nr_moved %d\n", nr_moved);
+		nr_moved = 0;
+
+		printk("release anon pin page inactive list\n");
+		nr_moved = release_pin_page_chunk_list(&mm->owner->dl.pin_page_control_anon,
+					&mm->owner->dl.pin_page_control_anon.pin_page_inactive_list,
+					mm->owner->dl.pin_page_control_anon.lruvec);
+		printk("remove nr_moved %d\n", nr_moved);
+		nr_moved = 0;
+		
+		printk("release anon pin page buffer\n");
+		release_pin_page_buffer(&mm->owner->dl.pin_page_control_anon, mm->owner->dl.pin_page_control_anon.lruvec);
+		printk("remove nr_moved %d\n", nr_moved);
+		nr_moved = 0;
+
+		printk("release file pin page active list\n");
+		nr_moved = release_pin_page_chunk_list(&mm->owner->dl.pin_page_control_file,
+					&mm->owner->dl.pin_page_control_file.pin_page_active_list,
+					mm->owner->dl.pin_page_control_anon.lruvec);
+		printk("remove nr_moved %d\n", nr_moved);
+		nr_moved = 0;
+
+		printk("release file pin page inactive list\n");
+		nr_moved = release_pin_page_chunk_list(&mm->owner->dl.pin_page_control_file,
+					&mm->owner->dl.pin_page_control_file.pin_page_inactive_list,
+					mm->owner->dl.pin_page_control_anon.lruvec);
+		printk("remove nr_moved %d\n", nr_moved);
+		nr_moved = 0;
+		
+		printk("release file pin page buffer\n");
+		release_pin_page_buffer(&mm->owner->dl.pin_page_control_file, mm->owner->dl.pin_page_control_anon.lruvec);
+		printk("remove nr_moved %d\n", nr_moved);
+
+	}
+
 	futex_exit_release(tsk);
 	mm_release(tsk, mm);
 }
