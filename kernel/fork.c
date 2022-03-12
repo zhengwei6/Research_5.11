@@ -1325,12 +1325,12 @@ static int release_pin_page_chunk_list(struct pin_page_control *pin_page_control
 {
 	struct pin_page_chunk *pin_page_chunk_entry;
 	struct list_head *list;
-	int nr_pages, nr_moved = 0; 
+	int nr_pages, nr_moved = 0;
 	struct page *page;
 	enum lru_list lru;
 
 	if (lruvec == NULL || pin_page_chunk_head == NULL || pin_page_control == NULL) return 0;
-	
+
 	spin_lock_irq(&lruvec->lru_lock);
 	spin_lock(&pin_page_control->pin_page_lock);
 	while (lruvec != NULL && !list_empty(pin_page_chunk_head)) {
@@ -1344,6 +1344,8 @@ static int release_pin_page_chunk_list(struct pin_page_control *pin_page_control
 			SetPageLRU(page);
 			if (unlikely(put_page_testzero(page))) {}
 			lru = page_lru(page);
+			if (lru == LRU_ACTIVE_ANON) lru = LRU_INACTIVE_ANON;
+			if (lru == LRU_ACTIVE_FILE) lru = LRU_INACTIVE_FILE;
 			nr_pages = thp_nr_pages(page);
 			update_lru_size(lruvec, lru, page_zonenum(page), nr_pages);
 			list_add(&page->lru, &lruvec->lists[lru]);
@@ -1385,10 +1387,9 @@ int release_pin_page_buffer(struct pin_page_control *pin_page_control, struct lr
 
 void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 {
-	if (mm != NULL && mm->owner != NULL && mm->is_real_time == 1) {
+	if (mm != NULL && mm->owner != NULL && mm->is_real_time == 1 && mm->owner->dl.pin_page_control_anon.lruvec != NULL) {
 		struct vm_area_struct *vma = mm->mmap;
         int nr_moved = 0;
-		
 		printk("release anon pin page active list\n");
 		nr_moved = release_pin_page_chunk_list(&mm->owner->dl.pin_page_control_anon,
 					&mm->owner->dl.pin_page_control_anon.pin_page_active_list,
@@ -1402,7 +1403,7 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 					mm->owner->dl.pin_page_control_anon.lruvec);
 		printk("remove nr_moved %d\n", nr_moved);
 		nr_moved = 0;
-		
+
 		printk("release anon pin page buffer\n");
 		release_pin_page_buffer(&mm->owner->dl.pin_page_control_anon, mm->owner->dl.pin_page_control_anon.lruvec);
 		printk("remove nr_moved %d\n", nr_moved);
@@ -1421,11 +1422,10 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 					mm->owner->dl.pin_page_control_anon.lruvec);
 		printk("remove nr_moved %d\n", nr_moved);
 		nr_moved = 0;
-		
+
 		printk("release file pin page buffer\n");
 		release_pin_page_buffer(&mm->owner->dl.pin_page_control_file, mm->owner->dl.pin_page_control_anon.lruvec);
 		printk("remove nr_moved %d\n", nr_moved);
-
 	}
 
 	futex_exit_release(tsk);

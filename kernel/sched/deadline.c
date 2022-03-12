@@ -884,7 +884,7 @@ static bool test_wake_from_swap(struct sched_dl_entity *dl_se)
 	if (dl_se->dl_major_fault == 1) {
 		dl_se->dl_major_fault = 0;
 		return 1;
-	} 
+	}
 
 	return 0;
 }
@@ -975,7 +975,7 @@ static void update_dl_entity(struct sched_dl_entity *dl_se)
 	struct rq *rq = rq_of_dl_rq(dl_rq);
 
 	bool wake_from_swap = test_wake_from_swap(dl_se);
-	
+
 	if (dl_se->dl_thrashing == 0 && dl_entity_overflow(dl_se, rq_clock(rq))) {
 		if (wake_from_swap) {
 			dl_se->dl_thrashing = 1;
@@ -2764,7 +2764,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 {
 	struct sched_dl_entity *dl_se = &p->dl;
 	struct mm_struct *real_time_mm = p->mm;
-    
+
 	if (real_time_mm != NULL) {
         struct vm_area_struct *cur = real_time_mm->mmap;
         while (cur != NULL) {
@@ -2792,9 +2792,9 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
             cur = cur->vm_next;
         }
     }
-	
+
     p->mm->is_real_time = 1;
-	
+
 	dl_se->pin_page_control_anon.buffer_count = 0;
     dl_se->pin_page_control_anon.cur_pin_active_chunks = 0;
 	dl_se->pin_page_control_anon.cur_pin_inactive_chunks = 0;
@@ -2803,7 +2803,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
     dl_se->pin_page_control_anon.check_first_k = 5;
     dl_se->pin_page_control_anon.check_n       = 3;
     dl_se->pin_page_control_anon.enqueued    = 1;
-	dl_se->pin_page_control_anon.chunk_division = 8;
+	dl_se->pin_page_control_anon.chunk_division = 5;
     INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_active_list);
 	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_inactive_list);
 	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_buffer);
@@ -2812,12 +2812,12 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->pin_page_control_file.buffer_count = 0;
     dl_se->pin_page_control_file.cur_pin_active_chunks = 0;
 	dl_se->pin_page_control_file.cur_pin_inactive_chunks = 0;
-    dl_se->pin_page_control_file.max_pin_chunks = 20;
+    dl_se->pin_page_control_file.max_pin_chunks = 100;
 	dl_se->pin_page_control_file.max_page_per_chunk = 32;
     dl_se->pin_page_control_file.check_first_k = 5;
     dl_se->pin_page_control_file.check_n       = 3;
     dl_se->pin_page_control_file.enqueued    = 1;
-	dl_se->pin_page_control_file.chunk_division = 8;
+	dl_se->pin_page_control_file.chunk_division = 128;
     INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_active_list);
 	INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_inactive_list);
 	INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_buffer);

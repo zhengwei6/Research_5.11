@@ -1221,7 +1221,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		if (!ignore_references)
 			references = page_check_references(page, sc);
-
+		
 		switch (references) {
 		case PAGEREF_ACTIVATE:
 			goto activate_locked;
@@ -2012,23 +2012,24 @@ static int check_chunks_reference(struct pin_page_chunk *check_chunk, struct mem
 	if (check_chunk == NULL || mem_cgroup == NULL || list_empty(&check_chunk->pin_page_list_head)) return 0;
 
 	for (cur_page_head = check_chunk->pin_page_list_head.next;
-		cur_page_head != (&check_chunk->pin_page_list_head);
+		cur_page_head != (&check_chunk->pin_page_list_head); 
 		cur_page_head = cur_page_head->next) {
 		int referenced_ptes, referenced_page;
 		unsigned long vm_flags;
 		if (k == 0) break;
 		page = list_entry(cur_page_head, struct page, lru);
-
+		
 		referenced_ptes = page_referenced(page, 1, mem_cgroup, &vm_flags);
+		referenced_page = TestClearPageReferenced(page);
+		
 		if (referenced_ptes == 0) count += 1;
 		k -= 1;
 	}
 	if (count >= n) return 0;
-	else if (count == 0) return 2;
-	return 1;
+	return 1; 
 }
 
-void evict_one_chunk(struct pin_page_chunk *evict_chunk,
+void evict_one_chunk(struct pin_page_chunk *evict_chunk, 
 		struct list_head *insert_list)
 {
     struct list_head *pin_page_list_head;
@@ -2040,7 +2041,7 @@ void evict_one_chunk(struct pin_page_chunk *evict_chunk,
 	kfree(evict_chunk);
 }
 
-void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_head *insert_list, struct list_head *insert_active_list)
+void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_head *insert_list)
 {
 	int num_scan_chunk;
 	LIST_HEAD(l_hold);
@@ -2048,7 +2049,6 @@ void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_he
 	struct pin_page_chunk *cur_chunk;
 	bool find_victim = 0;
 	int cur_pin_chunks;
-	int num_evict = 0, num_activate = 0, num_keep = 0;
 
 	if (pin_page_control == NULL || insert_list == NULL)
 		return;
@@ -2056,11 +2056,11 @@ void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_he
 
 	cur_pin_chunks = pin_page_control->cur_pin_inactive_chunks;
 	/* calculate how many chunks we need to scan.*/
-	num_scan_chunk = cur_pin_chunks / pin_page_control->chunk_division;
+	num_scan_chunk = cur_pin_chunks / pin_page_control->chunk_division * pin_page_control->chunk_division;
 	if (num_scan_chunk == 0) num_scan_chunk = cur_pin_chunks;
-	printk("find %d\n", num_scan_chunk);
+	
 	/* iterate from cur_chunk_head to the end */
-	for (cur_chunk_head = pin_page_control->pin_page_inactive_list.next; cur_chunk_head != (&(pin_page_control->pin_page_inactive_list));) {
+	for (cur_chunk_head = pin_page_control->pin_page_inactive_list.next; cur_chunk_head != (&(pin_page_control->pin_page_inactive_list));) {	
 		if (num_scan_chunk == 0) break;
 		cur_chunk = list_entry(cur_chunk_head, struct pin_page_chunk, pin_page_chunk_head);
 		/* set the cur_chunk_head to next entry */
@@ -2072,20 +2072,11 @@ void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_he
 				evict_one_chunk(cur_chunk, insert_list);
 				pin_page_control->cur_pin_inactive_chunks -= 1;
        	 		find_victim = 1;
-				num_evict += 1;
-				break;
-			case 1 :
-				/* keep */
-				list_add_tail(&cur_chunk->pin_page_chunk_head, &pin_page_control->pin_page_inactive_list);
-				num_keep += 1;
 				break;
 			default:
-				/* activate */
-				//printk("activate\n");
 				list_add_tail(&cur_chunk->pin_page_chunk_head, &pin_page_control->pin_page_active_list);
 				pin_page_control->cur_pin_inactive_chunks -= 1;
-				pin_page_control->cur_pin_active_chunks += 1;
-				num_activate += 1;
+				pin_page_control->cur_pin_active_chunks += 1; 
 		}
 		num_scan_chunk -= 1;
 	}
@@ -2094,15 +2085,14 @@ void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_he
 	if (find_victim == 0 && !list_empty(&pin_page_control->pin_page_inactive_list)) {
     	cur_chunk = list_entry(pin_page_control->pin_page_inactive_list.next, struct pin_page_chunk, pin_page_chunk_head);
 		list_del(&cur_chunk->pin_page_chunk_head);
-		evict_one_chunk(cur_chunk, insert_active_list);
+		evict_one_chunk(cur_chunk, insert_list);
     	pin_page_control->cur_pin_inactive_chunks -= 1;
   	}
-	printk("evict: %d  keep: %d  activate: %d\n", num_evict, num_keep, num_activate);
 	return;
 }
 
 void insert_page_to_control(struct pin_page_control *pin_page_control, struct page *page) {
-	/*
+	/* 
 	 * Insert to the buffer and insert it to the list if the buffer is full.
 	 */
 	struct list_head *pin_page_buffer = &pin_page_control->pin_page_buffer;
@@ -2117,8 +2107,8 @@ void insert_page_to_control(struct pin_page_control *pin_page_control, struct pa
 		INIT_LIST_HEAD(&pin_page_chunk->pin_page_chunk_head);
 		list_splice(pin_page_buffer, &pin_page_chunk->pin_page_list_head);
 		INIT_LIST_HEAD(pin_page_buffer);
-    	list_add_tail(&pin_page_chunk->pin_page_chunk_head, &pin_page_control->pin_page_active_list);
-   		pin_page_control->cur_pin_active_chunks += 1;
+    	list_add_tail(&pin_page_chunk->pin_page_chunk_head, &pin_page_control->pin_page_inactive_list);
+   		pin_page_control->cur_pin_inactive_chunks += 1;
 		pin_page_control->buffer_count = 0;
 	}
   	return;
@@ -2172,7 +2162,7 @@ struct pin_page_control *is_real_time_file_page(struct page *page) {
     struct address_space *mapping = page_mapping(page);
     if (!mapping || !page_is_file_lru(page) || mapping->is_real_time == -1)
         return NULL;
-    if (mapping->is_real_time == 1 && mapping->pin_page_control != NULL) return mapping->pin_page_control;
+    if (mapping->is_real_time == 1 && mapping->pin_page_control != NULL) return mapping->pin_page_control;	
 	return NULL;
 }
 
@@ -2268,8 +2258,8 @@ static void shrink_active_list(unsigned long nr_to_scan,
 					if (anon_vma->pin_page_control->enqueued == 1) {
 						if (cur_pin_chunks >= anon_vma->pin_page_control->max_pin_chunks) {
 							spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+							del_victim_chunks(anon_vma->pin_page_control, &l_active);
 							balance(anon_vma->pin_page_control);
-							del_victim_chunks(anon_vma->pin_page_control, &l_inactive, &l_active);
 							spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
 						}
 						ClearPageActive(page);
