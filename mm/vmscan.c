@@ -2058,7 +2058,7 @@ void del_victim_chunks(struct pin_page_control *pin_page_control, struct list_he
 	/* calculate how many chunks we need to scan.*/
 	num_scan_chunk = cur_pin_chunks / pin_page_control->chunk_division * pin_page_control->chunk_division;
 	if (num_scan_chunk == 0) num_scan_chunk = cur_pin_chunks;
-	
+	printk("2222\n");	
 	/* iterate from cur_chunk_head to the end */
 	for (cur_chunk_head = pin_page_control->pin_page_inactive_list.next; cur_chunk_head != (&(pin_page_control->pin_page_inactive_list));) {	
 		if (num_scan_chunk == 0) break;
