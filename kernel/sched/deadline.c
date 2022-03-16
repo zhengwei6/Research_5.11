@@ -2795,32 +2795,22 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 
     p->mm->is_real_time = 1;
 
-	dl_se->pin_page_control_anon.buffer_count = 0;
-    dl_se->pin_page_control_anon.cur_pin_active_chunks = 0;
-	dl_se->pin_page_control_anon.cur_pin_inactive_chunks = 0;
-    dl_se->pin_page_control_anon.max_pin_chunks = 100;
-	dl_se->pin_page_control_anon.max_page_per_chunk = 32;
-    dl_se->pin_page_control_anon.check_first_k = 5;
-    dl_se->pin_page_control_anon.check_n       = 3;
+    dl_se->pin_page_control_anon.cur_pin_active_pages = 0;
+	dl_se->pin_page_control_anon.cur_pin_inactive_pages = 0;
+    dl_se->pin_page_control_anon.max_pin_pages = 100000;
     dl_se->pin_page_control_anon.enqueued    = 1;
-	dl_se->pin_page_control_anon.chunk_division = 5;
+	dl_se->pin_page_control_anon.list_division = 300;
     INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_active_list);
 	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_inactive_list);
-	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_buffer);
 
 	/* file */
-	dl_se->pin_page_control_file.buffer_count = 0;
-    dl_se->pin_page_control_file.cur_pin_active_chunks = 0;
-	dl_se->pin_page_control_file.cur_pin_inactive_chunks = 0;
-    dl_se->pin_page_control_file.max_pin_chunks = 100;
-	dl_se->pin_page_control_file.max_page_per_chunk = 32;
-    dl_se->pin_page_control_file.check_first_k = 5;
-    dl_se->pin_page_control_file.check_n       = 3;
+    dl_se->pin_page_control_file.cur_pin_active_pages = 0;
+	dl_se->pin_page_control_file.cur_pin_inactive_pages = 0;
+    dl_se->pin_page_control_file.max_pin_pages = 100000;
     dl_se->pin_page_control_file.enqueued    = 1;
-	dl_se->pin_page_control_file.chunk_division = 128;
+	dl_se->pin_page_control_file.list_division = 50;
     INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_active_list);
 	INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_inactive_list);
-	INIT_LIST_HEAD(&dl_se->pin_page_control_file.pin_page_buffer);
 
 	dl_se->dl_runtime = attr->sched_runtime;
 	dl_se->dl_deadline = attr->sched_deadline;
