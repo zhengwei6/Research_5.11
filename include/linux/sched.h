@@ -529,6 +529,9 @@ struct pin_page_control {
 		int list_division;
 		/* spin lock for control*/
 		spinlock_t pin_page_lock;
+		int num_try_pin;
+		s64 last_enqueue_budget;
+		u64 last_period;
 };
 
 struct sched_dl_entity {
