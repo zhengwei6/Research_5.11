@@ -1222,6 +1222,7 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 		if (!ignore_references)
 			references = page_check_references(page, sc);
 
+
 		switch (references) {
 		case PAGEREF_ACTIVATE:
 			goto activate_locked;
@@ -2077,7 +2078,7 @@ void del_victim_pages(struct pin_page_control *pin_page_control, struct list_hea
     	pin_page_control->cur_pin_inactive_pages -= 1;
 		num_activate += 1;
   	}
-	printk("evict: %d  keep: %d  activate: %d\n", num_evict, num_keep, num_activate);
+	//printk("evict: %d  keep: %d  activate: %d\n", num_evict, num_keep, num_activate);
 	return;
 }
 
@@ -2248,6 +2249,11 @@ static void shrink_active_list(unsigned long nr_to_scan,
 			 * IO, plus JVM can create lots of anon VM_EXEC pages,
 			 * so we ignore them here.
 			 */
+			if ((vm_flags & VM_EXEC) && page_is_file_lru(page)) {
+				nr_rotated += thp_nr_pages(page);
+				list_add(&page->lru, &l_active);
+				continue;
+			}
 			if (PageAnon(page) && PageSwapBacked(page)) {
 				struct anon_vma *anon_vma = page_anon_vma(page);
 				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_control != NULL) {
@@ -2258,12 +2264,21 @@ static void shrink_active_list(unsigned long nr_to_scan,
 						anon_vma->pin_page_control->mem_cgroup = sc->target_mem_cgroup;
 						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
 					}
+					/*
+					if (cur_pin_pages <= 500000) {
+						ClearPageActive(page);
+						spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+						insert_page_to_control(anon_vma->pin_page_control, page);
+						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
+						continue;
+					}*/
+
 					if (anon_vma->pin_page_control->enqueued == 1) {
 						if (cur_pin_pages >= anon_vma->pin_page_control->max_pin_pages) {
 							spin_lock(&anon_vma->pin_page_control->pin_page_lock);
 							drop(anon_vma->pin_page_control, &l_active);
+							balance(anon_vma->pin_page_control);
 							del_victim_pages(anon_vma->pin_page_control, &l_inactive, &l_active);
-							anon_vma->pin_page_control->num_try_pin += 1;
 							spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
 						}
 						if (cur_pin_pages >= anon_vma->pin_page_control->max_pin_pages) goto skip_pin;
@@ -2285,10 +2300,17 @@ static void shrink_active_list(unsigned long nr_to_scan,
 				struct pin_page_control *pin_page_control = is_real_time_file_page(page);
 				if (pin_page_control != NULL) {
 					int cur_pin_pages = pin_page_control->cur_pin_active_pages + pin_page_control->cur_pin_inactive_pages;
+					ClearPageActive(page);
+					spin_lock(&pin_page_control->pin_page_lock);
+					insert_page_to_control(pin_page_control, page);
+					spin_unlock(&pin_page_control->pin_page_lock);
+					continue;
+					/*
 					if (pin_page_control->enqueued == 1) {
 						if (cur_pin_pages >= pin_page_control->max_pin_pages) {
 							spin_lock(&pin_page_control->pin_page_lock);
 							drop(pin_page_control, &l_active);
+							balance(pin_page_control);
 							del_victim_pages(pin_page_control, &l_inactive, &l_active);
 							pin_page_control->num_try_pin += 1;
 							spin_unlock(&pin_page_control->pin_page_lock);
@@ -2305,16 +2327,11 @@ static void shrink_active_list(unsigned long nr_to_scan,
 						insert_page_to_control(pin_page_control, page);
 						spin_unlock(&pin_page_control->pin_page_lock);
 						continue;
-					}
+					}*/
 				}
 			}
-skip_pin:
-			if ((vm_flags & VM_EXEC) && page_is_file_lru(page)) {
-				nr_rotated += thp_nr_pages(page);
-				list_add(&page->lru, &l_active);
-				continue;
-			}
 		}
+skip_pin:
 		ClearPageActive(page);	/* we are de-activating */
 		SetPageWorkingset(page);
 		list_add(&page->lru, &l_inactive);

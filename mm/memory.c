@@ -3345,7 +3345,6 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 			delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
 			goto unlock;
 		}
-		current->dl.dl_major_fault = 1;
 		/* Had to read the page from swap area: Major fault */
 		ret = VM_FAULT_MAJOR;
 		count_vm_event(PGMAJFAULT);
@@ -3359,7 +3358,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
 		goto out_release;
 	}
-
+	if (vma->vm_mm->owner->dl.dl_runtime > 0) {
+		vma->vm_mm->owner->dl.dl_major_fault += 1;
+	}
 	locked = lock_page_or_retry(page, vma->vm_mm, vmf->flags);
 
 	delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
