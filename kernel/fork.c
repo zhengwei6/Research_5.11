@@ -1359,6 +1359,7 @@ void exit_mm_release(struct task_struct *tsk, struct mm_struct *mm)
 	if (mm != NULL && mm->owner != NULL && mm->is_real_time == 1 && mm->owner->dl.pin_page_control_anon.lruvec != NULL) {
 		struct vm_area_struct *vma = mm->mmap;
         int nr_moved = 0;
+
 		printk("release anon pin page active list\n");
 		nr_moved = release_pin_page_list(&mm->owner->dl.pin_page_control_anon,
 					&mm->owner->dl.pin_page_control_anon.pin_page_active_list,
