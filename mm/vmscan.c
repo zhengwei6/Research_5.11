@@ -1068,6 +1068,7 @@ static void page_check_dirty_writeback(struct page *page,
 		mapping->a_ops->is_dirty_writeback(page, dirty, writeback);
 }
 
+struct pin_page_control *is_real_time_file_page(struct page *page);
 /*
  * shrink_page_list() returns the number of reclaimed pages
  */
@@ -1221,8 +1222,27 @@ static unsigned int shrink_page_list(struct list_head *page_list,
 
 		if (!ignore_references)
 			references = page_check_references(page, sc);
-
-
+/*
+		if (references == PAGEREF_RECLAIM || references == PAGEREF_RECLAIM_CLEAN) {
+			if (page_mapped(page) && PageAnon(page)) {
+				struct anon_vma *anon_vma = page_anon_vma(page);
+				if (anon_vma != NULL && anon_vma->is_real_time == 1 && anon_vma->pin_page_control != NULL) {
+					if (anon_vma->pin_page_control->lruvec == NULL) {
+						goto skip;
+					}
+				}
+				if (anon_vma->pin_page_control->enqueued == 1) {
+					references = PAGEREF_ACTIVATE;
+				}
+			} else {
+				struct pin_page_control *pin_page_control = is_real_time_file_page(page);
+				if (pin_page_control != NULL && pin_page_control->enqueued == 1) {
+					references = PAGEREF_ACTIVATE;
+				}
+			}
+		}
+skip:
+*/
 		switch (references) {
 		case PAGEREF_ACTIVATE:
 			goto activate_locked;
@@ -2047,7 +2067,6 @@ void del_victim_pages(struct pin_page_control *pin_page_control, struct list_hea
 
 	cur_pin_pages = pin_page_control->cur_pin_inactive_pages;
 	num_scan_pages = cur_pin_pages / pin_page_control->list_division;
-
 	for (cur_page_head = pin_page_control->pin_page_inactive_list.next; cur_page_head != (&(pin_page_control->pin_page_inactive_list));) {
 		int referenced_ptes, referenced_page;
 		unsigned long vm_flags;
@@ -2132,6 +2151,7 @@ void balance(struct pin_page_control *pin_page_control)
 	if (pin_page_control == NULL) return;
     cur_pin_pages = pin_page_control->cur_pin_inactive_pages + pin_page_control->cur_pin_active_pages;
     if (cur_pin_pages == 0) return;
+	//next_pin_inactive_pages = cur_pin_pages;
 	next_pin_inactive_pages = cur_pin_pages / 4;
     next_pin_active_pages = cur_pin_pages - next_pin_inactive_pages;
 

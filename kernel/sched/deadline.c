@@ -33,6 +33,20 @@ enum pin_list_adjustment {
 };
 
 
+void try_decrease_budget(struct sched_dl_entity *dl_se)
+{
+	if (dl_se->add_budget > 0) {
+		dl_se->add_budget = dl_se->add_budget * 19 / 20;
+		//printk("[Decrease] %u", dl_se->add_budget);
+	}
+}
+
+void try_increase_budget(struct sched_dl_entity *dl_se)
+{
+	dl_se->add_budget = dl_se->add_budget + (dl_se->dl_major_fault << DL_SCALE >> 2);
+	//printk("[Increase] %u %u", dl_se->add_budget, dl_se->dl_major_fault);
+}
+
 enum pin_list_adjustment
 check_adjust_pin_control(struct pin_page_control *pin_page_control,
 						 struct sched_dl_entity *dl_se,
@@ -46,22 +60,23 @@ check_adjust_pin_control(struct pin_page_control *pin_page_control,
 			remain_left = (pin_page_control->last_enqueue_budget >> DL_SCALE) * (dl_se->dl_period >> DL_SCALE) * 5;
 			remain_right = (pin_page_control->last_period >> DL_SCALE) * (dl_se->dl_runtime >> DL_SCALE) * 4;
 			used_left = ((dl_se->dl_runtime - dl_se->runtime) >> DL_SCALE) * 10;
-			used_right = (dl_se->dl_runtime >> DL_SCALE) * 9;
+			used_right = ((dl_se->dl_runtime) >> DL_SCALE) * 9;
+			//(remain_left < remain_right) (used_left < used_right)
 			if ((remain_left < remain_right) && (used_left < used_right)) {
 				res = LIST_SHRINK;
-				printk("[LIST_SHRINK] meet deadline : %d\n", dl_se->dl_major_fault);
+				//printk("[LIST_SHRINK] meet deadline : %d\n", dl_se->dl_major_fault);
 			} else {
 				res = LIST_KEEP;
-				printk("[LIST_KEEP] meet deadline : %d\n", dl_se->dl_major_fault);
+				//printk("[LIST_KEEP] meet deadline : %d\n", dl_se->dl_major_fault);
 			}
 			break;
 		case  MISS_DEADLINE:
 			if (dl_se->dl_major_fault > 0) {
 				res = LIST_INCREASE;
-				printk("[LIST_INCREASE] miss deadline : %d\n", dl_se->dl_major_fault);
+				//printk("[LIST_INCREASE] miss deadline : %d\n", dl_se->dl_major_fault);
 			} else {
 				res = LIST_KEEP;
-				printk("[LIST_KEEP] miss deadline : %d\n", dl_se->dl_major_fault);
+				//printk("[LIST_KEEP] miss deadline : %d\n", dl_se->dl_major_fault);
 			}
 	}
 	return res;
@@ -74,11 +89,12 @@ void update_pin_page_control(struct pin_page_control *pin_page_control,
 	spin_lock(&pin_page_control->pin_page_lock);
 	switch (adjustment) {
 		case LIST_SHRINK:
-			pin_page_control->max_pin_pages = pin_page_control->max_pin_pages * 9 / 10;
+			pin_page_control->max_pin_pages = pin_page_control->max_pin_pages * 8 / 10;
 			break;
 		case LIST_INCREASE:
 			pin_page_control->max_pin_pages = pin_page_control->max_pin_pages + dl_se->dl_major_fault;
-			printk("max pin pages: %d\n", pin_page_control->max_pin_pages);
+			//printk("max pin pages: %d\n", pin_page_control->max_pin_pages);
+			// increase budget
 			break;
 		default:
 			break;
@@ -89,6 +105,7 @@ void update_pin_page_control(struct pin_page_control *pin_page_control,
 void reset_pin_page_info(struct sched_dl_entity *dl_se, struct pin_page_control *pin_page_control)
 {
 	spin_lock(&pin_page_control->pin_page_lock);
+	//printk("dl_se->dl_major_fault %d\n", dl_se->dl_major_fault);
 	dl_se->dl_major_fault = 0;
 	pin_page_control->last_enqueue_budget = 0;
 	pin_page_control->last_period = 1;
@@ -886,6 +903,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	if (dl_se->dl_deadline == 0) {
 		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
 		dl_se->runtime = pi_of(dl_se)->dl_runtime;
+		dl_se->runtime += dl_se->add_budget;
 	}
 
 	if (dl_se->dl_yielded && dl_se->runtime > 0)
@@ -900,6 +918,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	while (dl_se->runtime <= 0) {
 		dl_se->deadline += pi_of(dl_se)->dl_period;
 		dl_se->runtime += pi_of(dl_se)->dl_runtime;
+		dl_se->runtime += dl_se->add_budget;
 	}
 
 	/*
@@ -971,7 +990,7 @@ static bool dl_entity_overflow(struct sched_dl_entity *dl_se, u64 t)
 	 */
 	left = (pi_of(dl_se)->dl_deadline >> DL_SCALE) * (dl_se->runtime >> DL_SCALE);
 	right = ((dl_se->deadline - t) >> DL_SCALE) *
-		(pi_of(dl_se)->dl_runtime >> DL_SCALE);
+		((pi_of(dl_se)->dl_runtime) >> DL_SCALE);
 
 	return dl_time_before(right, left);
 }
@@ -1105,6 +1124,7 @@ static void update_dl_entity(struct sched_dl_entity *dl_se)
 														  dl_se,
 														  MEET_DEADLINE);
 			update_pin_page_control(&dl_se->pin_page_control_file, dl_se, pin_list_adjustment);
+			try_decrease_budget(dl_se);
 		}
 
 		/* Reset the last period and last budget if it is overflow or meet deadline. */
@@ -1116,6 +1136,7 @@ static void update_dl_entity(struct sched_dl_entity *dl_se)
 
 		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
 		dl_se->runtime = pi_of(dl_se)->dl_runtime;
+		dl_se->runtime += dl_se->add_budget;
 	} else {
 		/* Update the last enqueue budget and last period. */
 		set_pin_page_info(dl_se, &dl_se->pin_page_control_anon, rq);
@@ -1475,7 +1496,7 @@ throttle:
 			update_pin_page_control(&dl_se->pin_page_control_file,
 								dl_se,
 								pin_page_adjustment);
-
+			try_increase_budget(dl_se);
 			reset_pin_page_info(dl_se, &dl_se->pin_page_control_anon);
 			reset_pin_page_info(dl_se, &dl_se->pin_page_control_file);
 		}
@@ -2943,9 +2964,10 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 	dl_se->pin_page_control_anon.cur_pin_inactive_pages = 0;
     dl_se->pin_page_control_anon.max_pin_pages = 5000;
     dl_se->pin_page_control_anon.enqueued    = 1;
-	dl_se->pin_page_control_anon.list_division = 1024;
+	dl_se->pin_page_control_anon.list_division = 512;
 	dl_se->pin_page_control_anon.num_try_pin = 0;
 	dl_se->dl_major_fault = 0;
+	dl_se->add_budget = 0;
     INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_active_list);
 	INIT_LIST_HEAD(&dl_se->pin_page_control_anon.pin_page_inactive_list);
 
