@@ -2076,7 +2076,7 @@ void del_victim_pages(struct pin_page_control *pin_page_control, struct list_hea
 		list_del(&page->lru);
 		referenced_ptes = page_referenced(page, 1, pin_page_control->mem_cgroup, &vm_flags);
 		if (referenced_ptes == 0) {
-			/* evict */
+			/* unpin */
 			list_add(&page->lru, insert_list);
 			pin_page_control->cur_pin_inactive_pages -= 1;
 			num_evict += 1;
@@ -2096,7 +2096,11 @@ void del_victim_pages(struct pin_page_control *pin_page_control, struct list_hea
 		list_add(&page->lru, insert_active_list);
     	pin_page_control->cur_pin_inactive_pages -= 1;
 		num_activate += 1;
+		if (pin_page_control->list_division > 128)
+			pin_page_control->list_division = pin_page_control->list_division / 2;
+		return;
   	}
+	if (pin_page_control->list_division < 1024 && num_evict > num_keep) pin_page_control->list_division = pin_page_control->list_division * 2;
 	//printk("evict: %d  keep: %d  activate: %d\n", num_evict, num_keep, num_activate);
 	return;
 }
