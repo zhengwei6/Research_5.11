@@ -62,9 +62,8 @@ check_adjust_pin_control(struct pin_page_control *pin_page_control,
 			used_left = ((dl_se->dl_runtime - dl_se->runtime) >> DL_SCALE) * 10;
 			used_right = ((dl_se->dl_runtime) >> DL_SCALE) * 9;
 			//(remain_left < remain_right) (used_left < used_right)
-			if ((remain_left < remain_right) && (used_left < used_right)) {
+			if ((used_left < used_right)) {
 				res = LIST_SHRINK;
-				//printk("[LIST_SHRINK] meet deadline : %d\n", dl_se->dl_major_fault);
 			} else {
 				res = LIST_KEEP;
 				//printk("[LIST_KEEP] meet deadline : %d\n", dl_se->dl_major_fault);

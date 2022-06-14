@@ -2098,10 +2098,11 @@ void del_victim_pages(struct pin_page_control *pin_page_control, struct list_hea
 		num_activate += 1;
 		if (pin_page_control->list_division > 128)
 			pin_page_control->list_division = pin_page_control->list_division / 2;
+		printk("not found\n");
 		return;
   	}
 	if (pin_page_control->list_division < 1024 && num_evict > num_keep) pin_page_control->list_division = pin_page_control->list_division * 2;
-	//printk("evict: %d  keep: %d  activate: %d\n", num_evict, num_keep, num_activate);
+	printk("evict: %d  keep: %d  activate: %d\n", num_evict, num_keep, num_activate);
 	return;
 }
 
@@ -2296,28 +2297,27 @@ static void shrink_active_list(unsigned long nr_to_scan,
 						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
 						continue;
 					}*/
-
-					if (anon_vma->pin_page_control->enqueued == 1) {
-						if (cur_pin_pages >= anon_vma->pin_page_control->max_pin_pages) {
-							spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+					if (cur_pin_pages >= (anon_vma->pin_page_control->max_pin_pages/10*9)) {
+							spin_lock_irq(&anon_vma->pin_page_control->pin_page_lock);
 							drop(anon_vma->pin_page_control, &l_active);
 							balance(anon_vma->pin_page_control);
 							del_victim_pages(anon_vma->pin_page_control, &l_inactive, &l_active);
-							spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
-						}
-						if (cur_pin_pages >= anon_vma->pin_page_control->max_pin_pages) goto skip_pin;
-						ClearPageActive(page);
-						spin_lock(&anon_vma->pin_page_control->pin_page_lock);
-						insert_page_to_control(anon_vma->pin_page_control, page);
-						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
-						continue;
-					} else if (cur_pin_pages < anon_vma->pin_page_control->max_pin_pages) {
-						ClearPageActive(page);
-						spin_lock(&anon_vma->pin_page_control->pin_page_lock);
-						insert_page_to_control(anon_vma->pin_page_control, page);
-						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
-						continue;
+							spin_unlock_irq(&anon_vma->pin_page_control->pin_page_lock);
 					}
+					if (cur_pin_pages >= anon_vma->pin_page_control->max_pin_pages) goto skip_pin;
+					ClearPageActive(page);
+					spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+					insert_page_to_control(anon_vma->pin_page_control, page);
+					spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
+					continue;
+					/*
+					else if (cur_pin_pages < anon_vma->pin_page_control->max_pin_pages) {
+						ClearPageActive(page);
+						spin_lock(&anon_vma->pin_page_control->pin_page_lock);
+						insert_page_to_control(anon_vma->pin_page_control, page);
+						spin_unlock(&anon_vma->pin_page_control->pin_page_lock);
+						continue;
+					}*/
 				}
 			}
 			if (page_is_file_lru(page)) {
