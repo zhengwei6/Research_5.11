@@ -43,7 +43,8 @@ void try_decrease_budget(struct sched_dl_entity *dl_se)
 
 void try_increase_budget(struct sched_dl_entity *dl_se)
 {
-	dl_se->add_budget = dl_se->add_budget + (dl_se->dl_major_fault << DL_SCALE >> 2);
+	if (dl_se->add_budget + (dl_se->dl_major_fault << DL_SCALE >> 2) + dl_se->dl_runtime < dl_se->dl_deadline)
+		dl_se->add_budget = dl_se->add_budget + (dl_se->dl_major_fault << DL_SCALE >> 2);
 	//printk("[Increase] %u %u", dl_se->add_budget, dl_se->dl_major_fault);
 }
 
