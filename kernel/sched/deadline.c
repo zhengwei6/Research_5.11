@@ -85,7 +85,6 @@ void update_pin_page_control(struct pin_page_control *pin_page_control,
 							struct sched_dl_entity *dl_se,
 			     			enum pin_list_adjustment adjustment)
 {
-	spin_lock(&pin_page_control->pin_page_lock);
 	switch (adjustment) {
 		case LIST_SHRINK:
 			pin_page_control->max_pin_pages = pin_page_control->max_pin_pages * 8 / 10;
@@ -98,17 +97,14 @@ void update_pin_page_control(struct pin_page_control *pin_page_control,
 		default:
 			break;
 	}
-	spin_unlock(&pin_page_control->pin_page_lock);
 }
 
 void reset_pin_page_info(struct sched_dl_entity *dl_se, struct pin_page_control *pin_page_control)
 {
-	spin_lock(&pin_page_control->pin_page_lock);
 	//printk("dl_se->dl_major_fault %d\n", dl_se->dl_major_fault);
 	dl_se->dl_major_fault = 0;
 	pin_page_control->last_enqueue_budget = 0;
 	pin_page_control->last_period = 1;
-	spin_unlock(&pin_page_control->pin_page_lock);
 }
 
 
@@ -119,19 +115,15 @@ void set_pin_page_info(struct sched_dl_entity *dl_se,
 	u64 left, right;
 	left = (dl_se->runtime >> DL_SCALE) * (pin_page_control->last_period >> DL_SCALE);
 	right = ((dl_se->deadline - rq_clock(rq)) >> DL_SCALE) * (pin_page_control->last_enqueue_budget >> DL_SCALE);
-	spin_lock(&pin_page_control->pin_page_lock);
 	if (left > right) {
 		pin_page_control->last_enqueue_budget = dl_se->runtime;
 		pin_page_control->last_period = dl_se->deadline - rq_clock(rq);
 	}
-	spin_unlock(&pin_page_control->pin_page_lock);
 }
 
 void reset_try_pin_page(struct pin_page_control *pin_page_control)
 {
-	spin_lock(&pin_page_control->pin_page_lock);
 	pin_page_control->num_try_pin = 0;
-	spin_unlock(&pin_page_control->pin_page_lock);
 }
 
 static inline struct task_struct *dl_task_of(struct sched_dl_entity *dl_se)
@@ -2961,7 +2953,7 @@ void __setparam_dl(struct task_struct *p, const struct sched_attr *attr)
 
     dl_se->pin_page_control_anon.cur_pin_active_pages = 0;
 	dl_se->pin_page_control_anon.cur_pin_inactive_pages = 0;
-    dl_se->pin_page_control_anon.max_pin_pages = 5000;
+    dl_se->pin_page_control_anon.max_pin_pages = 7000;
     dl_se->pin_page_control_anon.enqueued    = 1;
 	dl_se->pin_page_control_anon.list_division = 512;
 	dl_se->pin_page_control_anon.num_try_pin = 0;
