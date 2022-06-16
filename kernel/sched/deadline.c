@@ -43,9 +43,9 @@ void try_decrease_budget(struct sched_dl_entity *dl_se)
 
 void try_increase_budget(struct sched_dl_entity *dl_se)
 {
-	if (dl_se->add_budget + (dl_se->dl_major_fault << DL_SCALE >> 2) + dl_se->dl_runtime < dl_se->dl_deadline)
+	if (dl_se->dl_major_fault <= 0) return;
+	if ((dl_se->add_budget + (dl_se->dl_major_fault << DL_SCALE >> 2)) < dl_se->dl_deadline)
 		dl_se->add_budget = dl_se->add_budget + (dl_se->dl_major_fault << DL_SCALE >> 2);
-	//printk("[Increase] %u %u", dl_se->add_budget, dl_se->dl_major_fault);
 }
 
 enum pin_list_adjustment
@@ -895,7 +895,8 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	if (dl_se->dl_deadline == 0) {
 		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
 		dl_se->runtime = pi_of(dl_se)->dl_runtime;
-		dl_se->runtime += dl_se->add_budget;
+		dl_se->runtime += pi_of(dl_se)->add_budget;
+		//printk("%llu\n", dl_se->runtime);
 	}
 
 	if (dl_se->dl_yielded && dl_se->runtime > 0)
@@ -910,7 +911,7 @@ static void replenish_dl_entity(struct sched_dl_entity *dl_se)
 	while (dl_se->runtime <= 0) {
 		dl_se->deadline += pi_of(dl_se)->dl_period;
 		dl_se->runtime += pi_of(dl_se)->dl_runtime;
-		dl_se->runtime += dl_se->add_budget;
+		dl_se->runtime += pi_of(dl_se)->add_budget;
 	}
 
 	/*
@@ -980,9 +981,9 @@ static bool dl_entity_overflow(struct sched_dl_entity *dl_se, u64 t)
 	 * of anything below microseconds resolution is actually fiction
 	 * (but still we want to give the user that illusion >;).
 	 */
-	left = (pi_of(dl_se)->dl_deadline >> DL_SCALE) * (dl_se->runtime >> DL_SCALE);
+	left = ((pi_of(dl_se)->dl_deadline) >> DL_SCALE) * (dl_se->runtime >> DL_SCALE);
 	right = ((dl_se->deadline - t) >> DL_SCALE) *
-		((pi_of(dl_se)->dl_runtime) >> DL_SCALE);
+		((pi_of(dl_se)->dl_runtime + pi_of(dl_se)->add_budget) >> DL_SCALE);
 
 	return dl_time_before(right, left);
 }
@@ -1128,7 +1129,8 @@ static void update_dl_entity(struct sched_dl_entity *dl_se)
 
 		dl_se->deadline = rq_clock(rq) + pi_of(dl_se)->dl_deadline;
 		dl_se->runtime = pi_of(dl_se)->dl_runtime;
-		dl_se->runtime += dl_se->add_budget;
+		dl_se->runtime += pi_of(dl_se)->add_budget;
+		//printk("%llu\n", dl_se->runtime);
 	} else {
 		/* Update the last enqueue budget and last period. */
 		set_pin_page_info(dl_se, &dl_se->pin_page_control_anon, rq);
